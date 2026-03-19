@@ -10,6 +10,7 @@ Original file is located at
 """
 
 # Commented out IPython magic to ensure Python compatibility.
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -259,6 +260,43 @@ def main():
     plt.tight_layout()
     plt.show()
 
+    # -------------------- 新增 CSV 輸出 --------------------
+    model_name = "RandomForest"
+    output_dir = f"output/RandomForest/{model_name}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 1️⃣ 特徵重要性 CSV
+    feature_importance_df = pd.DataFrame({
+        "feature": X.columns,
+        "importance": rf_model.feature_importances_
+    }).sort_values(by="importance", ascending=False)
+        # 新增 rank 欄位
+    feature_importance_df["rank"] = range(1, len(feature_importance_df) + 1)
+    feature_importance_df.to_csv(os.path.join(
+        output_dir, "feature_importance.csv"), index=False)
+    print(f"✅ Feature importance saved to {output_dir}/feature_importance.csv")
+
+    # 2️⃣ 最佳參數 CSV
+    best_params_df = pd.DataFrame({
+        "parameter": list(rf_model.get_params().keys()),
+        "value": list(rf_model.get_params().values())
+    })
+    best_params_df.to_csv(os.path.join(output_dir, "best_params.csv"), index=False)
+    print(f"✅ Best parameters saved to {output_dir}/best_params.csv")
+
+    # 3️⃣ 模型評估指標 CSV
+    metrics_df = pd.DataFrame([{
+        "F1": f1_score(y_valid, valid_pred, zero_division=0),
+        "AUC": roc_auc_score(y_valid, valid_prob),
+        "Precision": precision_score(y_valid, valid_pred, zero_division=0),
+        "Recall": recall_score(y_valid, valid_pred, zero_division=0),
+        "best_threshold": best_threshold
+    }])
+    metrics_df.to_csv(os.path.join(output_dir, "metrics.csv"), index=False)
+    print(f"✅ Evaluation metrics saved to {output_dir}/metrics.csv")
+
 
 if __name__ == "__main__":
     main()
+
+

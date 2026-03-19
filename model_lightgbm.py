@@ -11,7 +11,7 @@ Refactor from colab_2.py:
 - 模型評估 + Feature Importance + Threshold tuning + SHAP
 - 輸出 submission.csv
 """
-
+import os
 import numpy as np
 import pandas as pd
 
@@ -304,6 +304,42 @@ def main(
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+    # -------------------- CSV 輸出 --------------------
+    model_name = "LightGBM"
+    output_dir = f"output/LightGBM/{model_name}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 1️⃣ 特徵重要性 + rank
+    feature_importance_df = pd.DataFrame({
+        "feature": X.columns,
+        "importance": model.feature_importances_
+    }).sort_values(by="importance", ascending=False)
+    feature_importance_df["rank"] = range(1, len(feature_importance_df)+1)
+    feature_importance_df.to_csv(os.path.join(
+        output_dir, "feature_importance.csv"), index=False)
+    print(
+        f"✅ Feature importance with rank saved to {output_dir}/feature_importance.csv")
+
+    # 2️⃣ 模型參數
+    best_params_df = pd.DataFrame({
+        "parameter": list(model.get_params().keys()),
+        "value": list(model.get_params().values())
+    })
+    best_params_df.to_csv(os.path.join(
+        output_dir, "best_params.csv"), index=False)
+    print(f"✅ Best parameters saved to {output_dir}/best_params.csv")
+
+    # 3️⃣ 評估指標
+    metrics_df = pd.DataFrame([{
+        "F1": f1_score(y_valid, valid_pred, zero_division=0),
+        "AUC": roc_auc_score(y_valid, valid_prob),
+        "Precision": precision_score(y_valid, valid_pred, zero_division=0),
+        "Recall": recall_score(y_valid, valid_pred, zero_division=0),
+        "best_threshold": best_th
+    }])
+    metrics_df.to_csv(os.path.join(output_dir, "metrics.csv"), index=False)
+    print(f"✅ Evaluation metrics saved to {output_dir}/metrics.csv")
 
 
 if __name__ == "__main__":
