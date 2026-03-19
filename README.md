@@ -35,3 +35,30 @@ AML / 詐騙偵測專案：從 BitoPro API 抓資料 → 特徵工程 → 用三
 
 - 主要中間檔：`train_df.csv`, `test_df.csv`, `feature_df.csv`
 - 模型輸出：依各 `model_*.py` / `run_all_models.py` 設定（通常為 submission / prediction CSV）
+
+
+### Per-model CSV outputs (auto-created folders)
+
+三個模型（LightGBM / XGBoost / RandomForest）在訓練完成後，會自動建立輸出資料夾：
+
+- `output/LightGBM/`
+- `output/XGBoost/`
+- `output/RandomForest/`
+
+並在各自資料夾輸出以下 CSV（檔名固定）：
+
+1. `feature_importance.csv`  
+   - 包含 `feature importance + rank`（特徵重要性與排名），通常為由高到低排序。
+
+2. `best_params.csv`  
+   - 紀錄該模型的最佳參數（Best Parameters）。
+
+3. `metrics.csv`  
+   - 模型評估指標（Validation metrics），包含：
+     - `F1`
+     - `AUC`
+     - `Precision`
+     - `Recall`
+     - `Best Threshold`
+
+> 註：各模型也可能仍會輸出 submission / prediction 類 CSV（依各 `model_*.py` 實作為準）。
