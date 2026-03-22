@@ -472,10 +472,10 @@ usdt_swap.head()
 # =========================
 
 # twd_transfer
-twd_transfer["amount_log"] = np.log1p(twd_transfer["amount"])
-twd_transfer["day_of_week"] = twd_transfer["created_at"].dt.dayofweek
-twd_transfer["date_only"] = twd_transfer["created_at"].dt.date
-twd_transfer["is_weekend"] = (twd_transfer["day_of_week"] >= 5).astype(int)
+twd_transfer["amount_log"] = np.log1p(twd_transfer["amount"]) # 對金額做 Log 轉換
+twd_transfer["day_of_week"] = twd_transfer["created_at"].dt.dayofweek # 時間拆解，把時間拆出星期幾
+twd_transfer["date_only"] = twd_transfer["created_at"].dt.date # 時間拆解，把時間拆出日期
+twd_transfer["is_weekend"] = (twd_transfer["day_of_week"] >= 5).astype(int) # 時間拆解，是否週末交易
 
 # crypto_transfer
 crypto_transfer["crypto_amount_log"] = np.log1p(crypto_transfer["crypto_amount"])
@@ -544,30 +544,30 @@ def calc_active_day_features(df, user_col, date_col, prefix):
 # twd_feat v2
 # =========================
 
-# overall
+# overall 整體統計
 twd_feat = twd_transfer.groupby("user_id").agg(
-    twd_txn_count=("id", "count"),
-    twd_total_amount=("amount", "sum"),
-    twd_avg_amount=("amount", "mean"),
-    twd_max_amount=("amount", "max"),
-    twd_min_amount=("amount", "min"),
-    twd_std_amount=("amount", "std"),
+    twd_txn_count=("id", "count"),      #總交易筆數
+    twd_total_amount=("amount", "sum"), #總金額
+    twd_avg_amount=("amount", "mean"),  # 平均每筆金額
+    twd_max_amount=("amount", "max"),   # 最大單筆金額
+    twd_min_amount=("amount", "min"),   # 最小單筆金額
+    twd_std_amount=("amount", "std"),   # 金額標準差(波動大不大)
 
-    twd_avg_amount_log=("amount_log", "mean"),
-    twd_max_amount_log=("amount_log", "max"),
+    twd_avg_amount_log=("amount_log", "mean"),  # log 金額的平均
+    twd_max_amount_log=("amount_log", "max"),   # log 金額的最大值
 
-    twd_deposit_count=("is_deposit", "sum"),
-    twd_withdraw_count=("is_withdraw", "sum"),
+    twd_deposit_count=("is_deposit", "sum"),    # 入金幾次
+    twd_withdraw_count=("is_withdraw", "sum"),  # 出金幾次
 
-    twd_night_ratio=("is_night", "mean"),
-    twd_weekend_ratio=("is_weekend", "mean"),
-    twd_unique_ip=("source_ip_hash", "nunique"),
+    twd_night_ratio=("is_night", "mean"),       # 夜間交易佔比
+    twd_weekend_ratio=("is_weekend", "mean"),   # 週末交易佔比
+    twd_unique_ip=("source_ip_hash", "nunique"),# 使用過的不同 IP 數
 
-    twd_first_time=("created_at", "min"),
-    twd_last_time=("created_at", "max")
+    twd_first_time=("created_at", "min"),       # 首次交易時間
+    twd_last_time=("created_at", "max")         # 最近交易時間
 ).reset_index()
 
-# in / out 分開做
+# in / out 分開做 入金/出金分開算
 twd_in = twd_transfer[twd_transfer["is_deposit"] == 1].groupby("user_id").agg(
     twd_in_total_amount=("amount", "sum"),
     twd_in_avg_amount=("amount", "mean"),
@@ -584,12 +584,12 @@ twd_out = twd_transfer[twd_transfer["is_withdraw"] == 1].groupby("user_id").agg(
     twd_out_avg_amount_log=("amount_log", "mean")
 ).reset_index()
 
-# active days
+# 呼叫 active days
 twd_active_days = calc_active_day_features(
     twd_transfer, "user_id", "date_only", "twd"
 )
 
-# gap features
+# 呼叫 gap features (交易間隔的統計特徵)
 twd_gap_feat = calc_time_gap_features(
     twd_transfer, "user_id", "created_at", "twd"
 )
@@ -600,16 +600,16 @@ twd_feat = twd_feat.merge(twd_out, on="user_id", how="left")
 twd_feat = twd_feat.merge(twd_active_days, on="user_id", how="left")
 twd_feat = twd_feat.merge(twd_gap_feat, on="user_id", how="left")
 
-# ratios
-twd_feat["twd_withdraw_ratio"] = twd_feat["twd_withdraw_count"] / (twd_feat["twd_txn_count"] + 1e-9)
-twd_feat["twd_deposit_ratio"] = twd_feat["twd_deposit_count"] / (twd_feat["twd_txn_count"] + 1e-9)
-twd_feat["twd_withdraw_deposit_ratio"] = twd_feat["twd_withdraw_count"] / (twd_feat["twd_deposit_count"] + 1)
-twd_feat["twd_txn_per_active_day"] = twd_feat["twd_txn_count"] / (twd_feat["twd_active_days"] + 1)
+# 衍生比例特徵 ratios
+twd_feat["twd_withdraw_ratio"] = twd_feat["twd_withdraw_count"] / (twd_feat["twd_txn_count"] + 1e-9)            # 出金佔總次數比例
+twd_feat["twd_deposit_ratio"] = twd_feat["twd_deposit_count"] / (twd_feat["twd_txn_count"] + 1e-9)              # 入金佔總次數比例
+twd_feat["twd_withdraw_deposit_ratio"] = twd_feat["twd_withdraw_count"] / (twd_feat["twd_deposit_count"] + 1)   # 出入金次數比例(高-> 洗錢)
+twd_feat["twd_txn_per_active_day"] = twd_feat["twd_txn_count"] / (twd_feat["twd_active_days"] + 1)              # 平均每活躍天的交易次數
 
 twd_feat["twd_out_in_amount_ratio"] = twd_feat["twd_out_total_amount"] / (twd_feat["twd_in_total_amount"] + 1)
 twd_feat["twd_active_span_sec"] = (
     twd_feat["twd_last_time"] - twd_feat["twd_first_time"]
-).dt.total_seconds()
+).dt.total_seconds()                                                                                            # 活躍時間跨度（秒）
 
 twd_feat.head()
 
@@ -645,15 +645,16 @@ unique IP 數
 # crypto_feat v2
 # =========================
 
+# overall 整體統計
 crypto_feat = crypto_transfer.groupby("user_id").agg(
     crypto_txn_count=("id", "count"),
 
-    crypto_total_amount=("crypto_amount", "sum"),
+    crypto_total_amount=("crypto_amount", "sum"),       # 幣的數量 (顆)
     crypto_avg_amount=("crypto_amount", "mean"),
     crypto_max_amount=("crypto_amount", "max"),
     crypto_std_amount=("crypto_amount", "std"),
 
-    crypto_total_twd_value=("twd_value", "sum"),
+    crypto_total_twd_value=("twd_value", "sum"),        # 以台幣計算的價值 (元)
     crypto_avg_twd_value=("twd_value", "mean"),
     crypto_max_twd_value=("twd_value", "max"),
     crypto_std_twd_value=("twd_value", "std"),
@@ -666,18 +667,18 @@ crypto_feat = crypto_transfer.groupby("user_id").agg(
     crypto_deposit_count=("is_deposit", "sum"),
     crypto_withdraw_count=("is_withdraw", "sum"),
 
-    crypto_external_count=("is_external", "sum"),
-    crypto_internal_count=("is_internal", "sum"),
+    crypto_external_count=("is_external", "sum"),       # 外部交易次數 (轉帳，鏈上真實轉移)
+    crypto_internal_count=("is_internal", "sum"),       # 內部交易次數 (錢包內部調整，可能不會上鏈，用於人頭帳戶快速分流)
 
-    crypto_relation_count=("has_relation_user", "sum"),
-    crypto_has_ip_count=("has_source_ip", "sum"),
+    crypto_relation_count=("has_relation_user", "sum"), # 有關聯帳戶的交易次數 (可能是同一人不同帳戶，或是常交易的對手)
+    crypto_has_ip_count=("has_source_ip", "sum"),       # 有 IP 的交易次數 (完全沒有 IP 可能是機器人，IP 跳動過於頻繁可能是洗錢，沒 IP 可能有資料異常)
 
-    crypto_unique_currency=("currency", "nunique"),
-    crypto_unique_protocol=("protocol", "nunique"),
-    crypto_unique_from_wallet=("from_wallet_hash", "nunique"),
-    crypto_unique_to_wallet=("to_wallet_hash", "nunique"),
-    crypto_unique_relation_user=("relation_user_id", "nunique"),
-    crypto_unique_ip=("source_ip_hash", "nunique"),
+    crypto_unique_currency=("currency", "nunique"),     # 交易過的幣種數量 (多幣種可能是洗錢分散風險)
+    crypto_unique_protocol=("protocol", "nunique"),     # 交易過的協定數量 (多協定可能是洗錢分散風險)
+    crypto_unique_from_wallet=("from_wallet_hash", "nunique"),  # 轉出錢包的多樣性 (多個轉出錢包可能是洗錢分散風險)
+    crypto_unique_to_wallet=("to_wallet_hash", "nunique"),      # 轉入錢包的多樣性 (多個轉入錢包可能是洗錢分散風險)
+    crypto_unique_relation_user=("relation_user_id", "nunique"),# 交易過的關聯帳戶數量 (多個關聯帳戶可能是洗錢分散風險)
+    crypto_unique_ip=("source_ip_hash", "nunique"),             # 使用過的不同 IP 數 (多個 IP 可能是洗錢分散風險)
 
     crypto_night_ratio=("is_night", "mean"),
     crypto_weekend_ratio=("is_weekend", "mean"),
@@ -686,13 +687,13 @@ crypto_feat = crypto_transfer.groupby("user_id").agg(
     crypto_last_time=("created_at", "max")
 ).reset_index()
 
-# in / out 分開做
+# in / out 分開做 (入金/出金分開算)
 crypto_in = crypto_transfer[crypto_transfer["is_deposit"] == 1].groupby("user_id").agg(
     crypto_in_total_amount=("crypto_amount", "sum"),
     crypto_in_avg_amount=("crypto_amount", "mean"),
     crypto_in_max_amount=("crypto_amount", "max"),
     crypto_in_std_amount=("crypto_amount", "std"),
-    crypto_in_total_twd_value=("twd_value", "sum"),
+    crypto_in_total_twd_value=("twd_value", "sum"),                                         # 以台幣計算的總價值
     crypto_in_avg_twd_value=("twd_value", "mean")
 ).reset_index()
 
@@ -701,7 +702,7 @@ crypto_out = crypto_transfer[crypto_transfer["is_withdraw"] == 1].groupby("user_
     crypto_out_avg_amount=("crypto_amount", "mean"),
     crypto_out_max_amount=("crypto_amount", "max"),
     crypto_out_std_amount=("crypto_amount", "std"),
-    crypto_out_total_twd_value=("twd_value", "sum"),
+    crypto_out_total_twd_value=("twd_value", "sum"),                                        # 以台幣計算的總價值  
     crypto_out_avg_twd_value=("twd_value", "mean")
 ).reset_index()
 
@@ -721,23 +722,23 @@ crypto_feat = crypto_feat.merge(crypto_out, on="user_id", how="left")
 crypto_feat = crypto_feat.merge(crypto_active_days, on="user_id", how="left")
 crypto_feat = crypto_feat.merge(crypto_gap_feat, on="user_id", how="left")
 
-# ratios
+# 比例特徵 ratios
 crypto_feat["crypto_withdraw_ratio"] = crypto_feat["crypto_withdraw_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)
 crypto_feat["crypto_deposit_ratio"] = crypto_feat["crypto_deposit_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)
-crypto_feat["crypto_external_ratio"] = crypto_feat["crypto_external_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)
-crypto_feat["crypto_internal_ratio"] = crypto_feat["crypto_internal_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)
-crypto_feat["crypto_relation_ratio"] = crypto_feat["crypto_relation_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)
-crypto_feat["crypto_has_ip_ratio"] = crypto_feat["crypto_has_ip_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)
+crypto_feat["crypto_external_ratio"] = crypto_feat["crypto_external_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)          # 外部交易佔總次數比例
+crypto_feat["crypto_internal_ratio"] = crypto_feat["crypto_internal_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)          # 內部交易佔總次數比例
+crypto_feat["crypto_relation_ratio"] = crypto_feat["crypto_relation_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)          # 有關聯帳戶的交易佔總次數比例
+crypto_feat["crypto_has_ip_ratio"] = crypto_feat["crypto_has_ip_count"] / (crypto_feat["crypto_txn_count"] + 1e-9)              # 有 IP 的交易佔總次數比例
 crypto_feat["crypto_withdraw_deposit_ratio"] = crypto_feat["crypto_withdraw_count"] / (crypto_feat["crypto_deposit_count"] + 1)
 
-# density / intensity
-crypto_feat["crypto_txn_per_active_day"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_active_days"] + 1)
-crypto_feat["crypto_txn_per_relation_user"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_unique_relation_user"] + 1)
-crypto_feat["crypto_txn_per_to_wallet"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_unique_to_wallet"] + 1)
-crypto_feat["crypto_txn_per_from_wallet"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_unique_from_wallet"] + 1)
-crypto_feat["crypto_txn_per_ip"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_unique_ip"] + 1)
+# 密度特徵 density / intensity
+crypto_feat["crypto_txn_per_active_day"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_active_days"] + 1)            # 平均每活躍天的交易次數
+crypto_feat["crypto_txn_per_relation_user"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_unique_relation_user"] + 1)# 平均每個關聯帳戶的交易次數
+crypto_feat["crypto_txn_per_to_wallet"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_unique_to_wallet"] + 1)        # 平均每個轉入錢包的交易次數
+crypto_feat["crypto_txn_per_from_wallet"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_unique_from_wallet"] + 1)    # 平均每個轉出錢包的交易次數
+crypto_feat["crypto_txn_per_ip"] = crypto_feat["crypto_txn_count"] / (crypto_feat["crypto_unique_ip"] + 1)                      # 平均每個 IP 的交易次數
 
-crypto_feat["crypto_out_in_amount_ratio"] = crypto_feat["crypto_out_total_twd_value"] / (crypto_feat["crypto_in_total_twd_value"] + 1)
+crypto_feat["crypto_out_in_amount_ratio"] = crypto_feat["crypto_out_total_twd_value"] / (crypto_feat["crypto_in_total_twd_value"] + 1) # 以台幣計算的出入金價值比例 (遠大於 1 代表出金超過入金，可能來源不明)
 
 crypto_feat["crypto_active_span_sec"] = (
     crypto_feat["crypto_last_time"] - crypto_feat["crypto_first_time"]
@@ -772,12 +773,20 @@ wallet 多樣性
 夜間交易比例
 
 這些特徵非常適合用來刻畫人頭戶、資金分流、與可疑轉移模式。
+
+「集中度」特徵，邏輯是：
+
+數值高：大量交易集中在少數錢包/用戶/IP → 可能是固定對口的資金通道
+數值低：每筆交易對手都不同 → 可能在大量分散轉出
+
+兩個方向都可能是異常，讓模型從兩端學。
 """
 
 # =========================
 # trade_feat v2
 # =========================
 
+# 掛單簿交易 整體統計
 trade_feat = usdt_twd_trading.groupby("user_id").agg(
     trade_count=("id", "count"),
 
@@ -789,20 +798,20 @@ trade_feat = usdt_twd_trading.groupby("user_id").agg(
     trade_avg_amount_log=("amount_log", "mean"),
     trade_max_amount_log=("amount_log", "max"),
 
-    trade_avg_price=("price", "mean"),
-    trade_max_price=("price", "max"),
-    trade_std_price=("price", "std"),
+    trade_avg_price=("price", "mean"),              # 成交流水的平均價格
+    trade_max_price=("price", "max"),               # 成交流水的最高價格
+    trade_std_price=("price", "std"),               # 成交流水的價格波動程度 (高代表價格差大時仍在交易，可能是套利或異常操作)
     trade_avg_price_log=("price_log", "mean"),
 
     trade_buy_count=("is_buy", "sum"),
     trade_sell_count=("is_sell", "sum"),
 
-    trade_market_count=("is_market", "sum"),
-    trade_unique_ip=("source_ip_hash", "nunique"),
+    trade_market_count=("is_market", "sum"),        # 市價單交易次數 (市價單可能代表急速買入賣出，可能是洗錢或套利行為)
+    trade_unique_ip=("source_ip_hash", "nunique"),  # 使用過的不同 IP 數 (多個 IP 可能是洗錢分散風險)
     trade_night_ratio=("is_night", "mean"),
     trade_weekend_ratio=("is_weekend", "mean"),
 
-    trade_source_nunique=("source", "nunique"),
+    trade_source_nunique=("source", "nunique"),     # 使用過的不同終端數 (多個終端可能是洗錢分散風險，或是同一人多帳戶操作)
 
     trade_first_time=("updated_at", "min"),
     trade_last_time=("updated_at", "max")
@@ -821,11 +830,11 @@ trade_feat = trade_feat.merge(trade_gap_feat, on="user_id", how="left")
 
 trade_feat["trade_buy_ratio"] = trade_feat["trade_buy_count"] / (trade_feat["trade_count"] + 1e-9)
 trade_feat["trade_sell_ratio"] = trade_feat["trade_sell_count"] / (trade_feat["trade_count"] + 1e-9)
-trade_feat["trade_market_ratio"] = trade_feat["trade_market_count"] / (trade_feat["trade_count"] + 1e-9)
+trade_feat["trade_market_ratio"] = trade_feat["trade_market_count"] / (trade_feat["trade_count"] + 1e-9)        # 市價單佔比
 
 trade_feat["trade_txn_per_active_day"] = trade_feat["trade_count"] / (trade_feat["trade_active_days"] + 1)
 trade_feat["trade_txn_per_ip"] = trade_feat["trade_count"] / (trade_feat["trade_unique_ip"] + 1)
-trade_feat["trade_txn_per_source"] = trade_feat["trade_count"] / (trade_feat["trade_source_nunique"] + 1)
+trade_feat["trade_txn_per_source"] = trade_feat["trade_count"] / (trade_feat["trade_source_nunique"] + 1)       # 平均每個終端的交易次數
 
 trade_feat["trade_active_span_sec"] = (
     trade_feat["trade_last_time"] - trade_feat["trade_first_time"]
@@ -843,7 +852,7 @@ trade_feat.head()
 
 ### trade_feat 說明
 
-這張表反映掛單簿交易風格。像是：
+這張表反映掛單簿交易風格 (等對手方成交，有價格)。像是：
 
 偏買還是偏賣
 
@@ -860,15 +869,16 @@ trade_feat.head()
 # swap_feat v2
 # =========================
 
+# 一鍵買賣 整體統計
 swap_feat = usdt_swap.groupby("user_id").agg(
     swap_count=("id", "count"),
 
-    swap_total_twd=("twd_amount", "sum"),
-    swap_avg_twd=("twd_amount", "mean"),
+    swap_total_twd=("twd_amount", "sum"),           # 花費多少台幣
+    swap_avg_twd=("twd_amount", "mean"),            
     swap_max_twd=("twd_amount", "max"),
     swap_std_twd=("twd_amount", "std"),
 
-    swap_total_crypto=("crypto_amount", "sum"),
+    swap_total_crypto=("crypto_amount", "sum"),     # 換到多少幣 (顆)
     swap_avg_crypto=("crypto_amount", "mean"),
     swap_max_crypto=("crypto_amount", "max"),
     swap_std_crypto=("crypto_amount", "std"),
@@ -887,6 +897,7 @@ swap_feat = usdt_swap.groupby("user_id").agg(
     swap_last_time=("created_at", "max")
 ).reset_index()
 
+# buy / sell 分開做 買幣/賣幣分開算
 swap_buy = usdt_swap[usdt_swap["is_buy_coin"] == 1].groupby("user_id").agg(
     swap_buy_total_twd=("twd_amount", "sum"),
     swap_buy_avg_twd=("twd_amount", "mean")
@@ -913,7 +924,7 @@ swap_feat = swap_feat.merge(swap_gap_feat, on="user_id", how="left")
 swap_feat["swap_buy_ratio"] = swap_feat["swap_buy_count"] / (swap_feat["swap_count"] + 1e-9)
 swap_feat["swap_sell_ratio"] = swap_feat["swap_sell_count"] / (swap_feat["swap_count"] + 1e-9)
 swap_feat["swap_txn_per_active_day"] = swap_feat["swap_count"] / (swap_feat["swap_active_days"] + 1)
-swap_feat["swap_sell_buy_twd_ratio"] = swap_feat["swap_sell_total_twd"] / (swap_feat["swap_buy_total_twd"] + 1)
+swap_feat["swap_sell_buy_twd_ratio"] = swap_feat["swap_sell_total_twd"] / (swap_feat["swap_buy_total_twd"] + 1) # 賣幣換回的台幣 / 買幣花的台幣 (遠大於 1 代表賣出遠多於買入，可能是資金來源不明)
 
 swap_feat["swap_active_span_sec"] = (
     swap_feat["swap_last_time"] - swap_feat["swap_first_time"]
@@ -946,6 +957,7 @@ def build_network_features(crypto_transfer):
     """建立轉帳網絡特徵"""
     
     # 基礎網絡統計
+    # 出度：計算這個 user 轉給多少人
     network_out = crypto_transfer[crypto_transfer["has_relation_user"] == 1].groupby("user_id").agg(
         network_out_degree=("relation_user_id", "nunique"),  # 轉給多少不同的人
         network_out_txn_count=("id", "count"),
@@ -1003,7 +1015,7 @@ def analyze_wallet_risk(crypto_transfer):
         wallet_avg_value=("twd_value", "mean")
     )
     
-    # 定義高風險錢包：被超過 5 個不同 user 使用
+    # 自定義高風險錢包：被超過 5 個不同 user 使用
     high_risk_to_wallets = to_wallet_stats[to_wallet_stats["wallet_user_count"] >= 5].index
     
     # 計算每個 from_wallet 的統計
@@ -1014,7 +1026,7 @@ def analyze_wallet_risk(crypto_transfer):
     
     high_risk_from_wallets = from_wallet_stats[from_wallet_stats["from_wallet_user_count"] >= 5].index
     
-    # 標記使用高風險錢包的交易
+    # 用isin() 標記使用高風險錢包的交易
     crypto_transfer_copy = crypto_transfer.copy()
     crypto_transfer_copy["is_high_risk_to_wallet"] = crypto_transfer_copy["to_wallet_hash"].isin(high_risk_to_wallets).astype(int)
     crypto_transfer_copy["is_high_risk_from_wallet"] = crypto_transfer_copy["from_wallet_hash"].isin(high_risk_from_wallets).astype(int)
@@ -1027,7 +1039,7 @@ def analyze_wallet_risk(crypto_transfer):
         high_risk_from_wallet_ratio=("is_high_risk_from_wallet", "mean")
     ).reset_index()
     
-    # 計算錢包重複使用率
+    # 計算錢包重複使用率 (0或1都可能異常)
     wallet_reuse = crypto_transfer.groupby("user_id").agg(
         to_wallet_reuse_rate=("to_wallet_hash", lambda x: 1 - x.nunique() / (len(x) + 1e-9)),
         from_wallet_reuse_rate=("from_wallet_hash", lambda x: 1 - x.nunique() / (len(x) + 1e-9))
@@ -1061,7 +1073,7 @@ def analyze_ip_patterns(twd_transfer, crypto_transfer, usdt_twd_trading):
     # 計算每個 IP 被多少 user 使用
     ip_user_count = all_ips.groupby("source_ip_hash")["user_id"].nunique()
     
-    # 定義共用 IP：被超過 3 個 user 使用
+    # 自定義共用 IP：被超過 3 個 user 使用
     shared_ips = ip_user_count[ip_user_count >= 3].index
     
     # 標記共用 IP
@@ -1082,12 +1094,12 @@ def analyze_ip_patterns(twd_transfer, crypto_transfer, usdt_twd_trading):
     # 計算每個 user 在不同交易類型中的 IP 重疊度
     user_ip_by_source = all_ips.groupby(["user_id", "source"])["source_ip_hash"].apply(set).reset_index()
     
-    # 計算 IP 一致性（跨交易類型使用相同 IP 的程度）
+    # 計算 IP 一致性（跨交易類型使用相同 IP 的程度，高者可能被操控)
     def calc_ip_consistency(group):
         if len(group) <= 1:
             return 1.0
-        sets = group["source_ip_hash"].tolist()
-        intersection = set.intersection(*sets)
+        sets = group["source_ip_hash"].tolist()             # 每個交易類型的 IP 集合
+        intersection = set.intersection(*sets)              # 交集：所有交易類型共有的 IP
         union = set.union(*sets)
         return len(intersection) / (len(union) + 1e-9) if len(union) > 0 else 0
     
@@ -1119,16 +1131,16 @@ def extract_temporal_anomalies(twd_transfer, crypto_transfer, usdt_twd_trading, 
         (usdt_twd_trading, "trade", "updated_at"),
         (usdt_swap, "swap", "created_at")
     ]:
-        # 計算每小時交易分布的熵
+        # 計算每小時交易分布的熵 (高熵表示交易分布較均勻，低熵表示集中在特定時段)
         def calc_hour_entropy(hours):
             if len(hours) == 0:
                 return 0
-            counts = hours.value_counts(normalize=True)
+            counts = hours.value_counts(normalize=True)         # 每小時的交易比例
             entropy = -sum(p * np.log(p + 1e-9) for p in counts)
             return entropy
         
+        # 計算小時分布的熵
         hour_entropy = df.groupby("user_id")["hour"].apply(calc_hour_entropy).reset_index(name=f"{prefix}_hour_entropy")
-        
         # 計算星期分布的熵
         day_entropy = df.groupby("user_id")["day_of_week"].apply(calc_hour_entropy).reset_index(name=f"{prefix}_day_entropy")
         
@@ -1166,18 +1178,18 @@ def detect_amount_anomalies(twd_transfer, crypto_transfer, usdt_twd_trading, usd
     
     amount_feats = []
     
-    # TWD transfer 金額模式
+    # TWD transfer 金額模式 (是否偏好整數金額，金額分布的集中度與偏態)
     twd_amount_feat = twd_transfer.groupby("user_id").agg(
         twd_round_1000_ratio=("amount", lambda x: (x % 1000 == 0).mean()),
         twd_round_10000_ratio=("amount", lambda x: (x % 10000 == 0).mean()),
         twd_round_100000_ratio=("amount", lambda x: (x % 100000 == 0).mean()),
-        twd_amount_cv=("amount", lambda x: x.std() / (x.mean() + 1e-9)),
+        twd_amount_cv=("amount", lambda x: x.std() / (x.mean() + 1e-9)),                # 金額的變異係數 (高代表金額分布很分散，低代表金額集中在某些值)
         twd_amount_skew=("amount", lambda x: x.skew() if len(x) > 2 else 0),
-        twd_amount_kurtosis=("amount", lambda x: x.kurtosis() if len(x) > 3 else 0)
+        twd_amount_kurtosis=("amount", lambda x: x.kurtosis() if len(x) > 3 else 0)     # 金額分布的峰態 (高代表有極端大金額，可能是洗錢行為)
     ).reset_index()
     amount_feats.append(twd_amount_feat)
     
-    # Crypto transfer 金額模式
+    # Crypto transfer 金額模式 (金額分布的集中度與偏態)
     crypto_amount_feat = crypto_transfer.groupby("user_id").agg(
         crypto_round_ratio=("crypto_amount", lambda x: (x == x.round()).mean()),
         crypto_twd_value_cv=("twd_value", lambda x: x.std() / (x.mean() + 1e-9)),
@@ -1185,7 +1197,7 @@ def detect_amount_anomalies(twd_transfer, crypto_transfer, usdt_twd_trading, usd
     ).reset_index()
     amount_feats.append(crypto_amount_feat)
     
-    # Trading 金額模式
+    # Trading 金額模式 (金額分布的集中度與偏態)
     trade_amount_feat = usdt_twd_trading.groupby("user_id").agg(
         trade_amount_cv=("amount", lambda x: x.std() / (x.mean() + 1e-9)),
         trade_price_cv=("price", lambda x: x.std() / (x.mean() + 1e-9))
@@ -1280,7 +1292,7 @@ def calculate_fund_flow_patterns(twd_transfer, crypto_transfer, usdt_twd_trading
     flow_feat["txn_type_diversity"] = (
         flow_feat["has_twd"] + flow_feat["has_crypto"] + 
         flow_feat["has_trade"] + flow_feat["has_swap"]
-    )
+    ) # 用戶參與的交易類型數量 (多樣性高可能是正常用戶，過低可能是專注於單一操作的異常帳戶)
     
     # 只保留數值特徵
     numeric_cols = ["user_id", "overall_active_span_sec", "twd_to_crypto_gap_sec", 
