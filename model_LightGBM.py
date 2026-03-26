@@ -430,7 +430,7 @@ def split_data(X, y, raw_train_df, split_time_col=None, test_size=0.2):
 # =========================================================
 # 8. 單一實驗函式
 # =========================================================
-def run_experiment(train_df, test_df, mode="full", out_dir="output_lgb_v1", use_optuna=True):
+def run_experiment(train_df, test_df, mode="full", out_dir="output_lgb", use_optuna=True):
     print("=" * 100)
     print(f"[INFO] Running mode = {mode}  |  use_optuna = {use_optuna}")
 
