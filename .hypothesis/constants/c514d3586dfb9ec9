@@ -1,0 +1,4 @@
+# file: C:\Users\Sharon\Bito-Guard\app\services\ensemble_scorer.py
+# hypothesis_version: 6.151.9
+
+[0.0, 1.0, '0.2', '0.3', '0.5', 'ENSEMBLE_WEIGHT_SEQ', 'ENSEMBLE_WEIGHT_XGB', 'graph', 'seq', 'xgb']

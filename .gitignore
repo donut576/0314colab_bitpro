@@ -20,6 +20,10 @@ env/
 .ipynb_checkpoints/
 *.ipynb
 
+# Node
+node_modules/
+dist/
+
 # IDE
 .vscode/
 .idea/

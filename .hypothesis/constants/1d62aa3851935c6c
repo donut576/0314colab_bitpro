@@ -1,0 +1,4 @@
+# file: C:\Users\Sharon\Bito-Guard\app\services\alert_router.py
+# hypothesis_version: 6.151.9
+
+[0.0, 1000, 3600, 'HIGH', 'all', 'case_id', 'email', 'line', 'risk_level', 'risk_score', 'top_signals', 'user_id', 'webhook']

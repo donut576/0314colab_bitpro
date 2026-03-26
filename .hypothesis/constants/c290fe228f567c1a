@@ -1,0 +1,4 @@
+# file: C:\Users\Sharon\Bito-Guard\app\services\case_manager.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.7, '1.0', 'HIGH', 'assigned', 'assigned_analyst', 'audit_trail', 'case_created', 'cluster_id', 'confirmed_fraud', 'false_positive', 'model_version', 'prediction_appended', 'risk_level', 'risk_score', 'shap_top_features', 'status', 'status_updated', 'supervisor', 'system', 'updated_at', 'user_id']

@@ -1,0 +1,4 @@
+# file: C:\Users\Sharon\Bito-Guard\app\services\sequence_scorer.py
+# hypothesis_version: 6.151.9
+
+[0.0, 1e-09, 1.0, '5', '90', 'SEQ_LOOKBACK_DAYS', 'SEQ_MIN_TRANSACTIONS', 'SEQ_MODEL_ARCH', 'amount', 'channel', 'lstm', 'seq-1.0', 'timestamp', 'unknown']

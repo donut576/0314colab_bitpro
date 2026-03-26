@@ -1,0 +1,302 @@
+# Implementation Plan: AML Advanced Features
+
+## Overview
+
+Extend the existing FastAPI AML platform with streaming fraud detection, graph-based GNN scoring, identity clustering, behavioral sequence models, adaptive thresholds, case management, AI copilot, cross-platform alerting, a centralized feature store, unified monitoring, and an upgraded analyst dashboard.
+
+New code lives under `app/` (FastAPI service extensions), `frontend/` (React dashboard upgrade), and `tests/` (all tests). Existing `feature_engineering.py` and `model_xgboost.py` at root are not modified.
+
+## Tasks
+
+- [x] 1. Feature Store and Data Infrastructure (REQ-A9)
+  - [x] 1.1 Create `app/services/feature_store.py` implementing `FeatureStore` class
+    - Redis hot layer for <20ms p99 reads; PostgreSQL cold layer for point-in-time correct training retrieval
+    - `get(user_id, groups)` checks Redis first, falls back to Postgres; returns zero-vector with `cold_start: true` for unknown users
+    - `get_batch(user_ids)` returns list of FeatureVectors in a single round-trip
+    - `put(user_id, features)` writes to Redis (TTL 24h) and Postgres; schema version stamped on every write
+    - Key schema: `features:{user_id}:{schema_version}`
+    - _Requirements: REQ-A9_
+  - [x] 1.2 Create `app/models/feature_store.py` with `FeatureVector`, `FeatureStoreStats` Pydantic schemas
+    - `FeatureVector`: `user_id`, `schema_version`, `features: dict[str, float]`, `groups: list[str]`, `last_updated`, `cold_start: bool`
+    - _Requirements: REQ-A9.5, REQ-A9.7, REQ-A9.8_
+  - [x] 1.3 Create `app/routers/feature_store.py` — `GET /features/{user_id}`, `POST /features/batch`, `GET /features/stats`
+    - _Requirements: REQ-A9.5, REQ-A9.6, REQ-A9.10_
+  - [x] 1.4 Create `app/migrations/002_create_feature_store.sql`
+    - `feature_vectors` table: `user_id`, `schema_version`, `features JSONB`, `groups TEXT[]`, `last_updated`, `created_at`
+    - Index on `(user_id, schema_version)`
+    - _Requirements: REQ-A9.2, REQ-A9.4_
+  - [x] 1.5 Write property test for feature store cold start
+    - **Property 14: Feature store cold start** — generate unknown user_ids, assert zero-vector + `cold_start: true`, never 404
+    - `# Feature: aml-advanced-features, Property 14: cold start returns zero-vector`
+    - **Validates: Requirements REQ-A9.7**
+  - [x] 1.6 Write property test for feature store schema versioning round-trip
+    - **Property 15: Feature store schema versioning** — write features at version V, deploy V+1, assert V retrieval unchanged
+    - `# Feature: aml-advanced-features, Property 15: schema versioning round-trip`
+    - **Validates: Requirements REQ-A9.4**
+
+- [x] 2. Real-Time Streaming Fraud Detection (REQ-A1)
+  - [x] 2.1 Create `app/services/stream_consumer.py` implementing `StreamConsumer` class
+    - Broker backend selected via `STREAM_BROKER_TYPE` env var (`kafka` or `kinesis`)
+    - `start()` / `stop()` lifecycle; local in-memory buffer for broker unavailability
+    - Per-event flow: deserialize → `FeatureStore.get()` → `XGBPredictor.predict_single()` → `EnsembleScorer.combine()` → `AuditLogger.log_prediction()`
+    - If `FeatureStore` unavailable: fall back to reduced feature set, set `feature_degraded: true` on prediction record
+    - If `risk_score > threshold`: call `AlertRouter.dispatch()` asynchronously
+    - _Requirements: REQ-A1_
+  - [x] 2.2 Create `app/services/ensemble_scorer.py` implementing `EnsembleScorer`
+    - `combine(xgb_score, graph_score, seq_score, weights)` → weighted average clamped to [0, 1]
+    - Weights configurable via env vars `ENSEMBLE_WEIGHT_XGB`, `ENSEMBLE_WEIGHT_GRAPH`, `ENSEMBLE_WEIGHT_SEQ`
+    - Gracefully handles missing component scores (skip with logged warning)
+    - _Requirements: REQ-A2.6, REQ-A4.7_
+  - [x] 2.3 Create `app/routers/stream.py` — `GET /stream/health`
+    - Returns broker connectivity status, consumer lag, events-per-second throughput
+    - _Requirements: REQ-A1.7_
+  - [x] 2.4 Write property test for streaming enrichment completeness
+    - **Property 1: Streaming enrichment completeness** — generate random events + feature store availability states, assert enrichment correctness and `feature_degraded` flag
+    - `# Feature: aml-advanced-features, Property 1: streaming enrichment completeness`
+    - **Validates: Requirements REQ-A1.3, REQ-A1.6**
+  - [x] 2.5 Write property test for streaming audit parity
+    - **Property 2: Streaming audit parity** — generate random scored events, assert audit log contains matching record with same `user_id`, `risk_score`, `model_version`
+    - `# Feature: aml-advanced-features, Property 2: streaming audit parity`
+    - **Validates: Requirements REQ-A1.8**
+  - [x] 2.6 Write property test for ensemble score bounds
+    - **Property 4: Ensemble score bounds** — generate random (xgb_score, graph_score, weight) triples, assert result in [0, 1]
+    - `# Feature: aml-advanced-features, Property 4: ensemble score bounds`
+    - **Validates: Requirements REQ-A2.6**
+
+- [x] 3. Graph-Based Fraud Detection (REQ-A2)
+  - [x] 3.1 Create `app/services/graph_engine.py` implementing `GraphEngine` class
+    - Maintain directed transaction graph using NetworkX; persist daily snapshots to PostgreSQL (retain last 30)
+    - `update_graph(transactions)` adds nodes/edges incrementally
+    - `recompute_embeddings()` runs 2-layer GraphSAGE or GAT via PyTorch Geometric; configurable hidden dims via `GRAPH_HIDDEN_DIM`
+    - `get_score(user_id)` returns `GraphScore` with embedding, hop counts, betweenness centrality
+    - `get_subgraph(user_id, hops=2)` returns ego network as JSON node-link structure
+    - Neighborhood elevation: if fraction of HIGH-risk 1-hop neighbors > `GRAPH_HIGH_FRACTION_THRESHOLD`, elevate Risk_Level by one tier
+    - _Requirements: REQ-A2_
+  - [x] 3.2 Create `app/models/graph.py` with `GraphScore`, `SubgraphResult`, `TransactionEdge` Pydantic schemas
+    - `GraphScore`: `user_id`, `graph_risk_score`, `embedding`, `hop1_count`, `hop2_count`, `betweenness_centrality`, `elevated: bool`
+    - _Requirements: REQ-A2.4, REQ-A2.5_
+  - [x] 3.3 Create `app/routers/graph.py` — `POST /graph/score`, `GET /graph/subgraph/{user_id}`
+    - _Requirements: REQ-A2.5, REQ-A2.7_
+  - [x] 3.4 Create `app/migrations/003_create_graph_snapshots.sql`
+    - `graph_snapshots` table: `snapshot_date DATE`, `node_count INT`, `edge_count INT`, `snapshot_data JSONB`, `created_at`
+    - _Requirements: REQ-A2.9_
+  - [x] 3.5 Write property test for graph neighborhood elevation
+    - **Property 3: Graph neighborhood elevation** — generate random neighborhoods with varying HIGH fractions, assert elevation logic applies iff fraction > threshold
+    - `# Feature: aml-advanced-features, Property 3: graph neighborhood elevation`
+    - **Validates: Requirements REQ-A2.8**
+
+- [x] 4. Multi-Account Linking and Identity Clustering (REQ-A3)
+  - [x] 4.1 Create `app/services/identity_clusterer.py` implementing `IdentityClusterer` class
+    - Union-find algorithm linking accounts by shared IP (within 30-day window), shared withdrawal wallet, shared device fingerprint
+    - `recompute_clusters()` runs on configurable schedule (default 6h); returns `ClusterDiff` (new, merged, dissolved)
+    - `cluster_risk_score` = max Risk_Score among all member accounts
+    - Auto-creates Case in `CaseManager` when `cluster_risk_score` exceeds HIGH threshold
+    - _Requirements: REQ-A3_
+  - [x] 4.2 Create `app/models/cluster.py` with `IdentityCluster`, `ClusterDiff`, `ClusterStats` Pydantic schemas
+    - `IdentityCluster`: `cluster_id`, `member_user_ids`, `shared_signals`, `cluster_risk_score`, `created_at`
+    - _Requirements: REQ-A3.6_
+  - [x] 4.3 Create `app/routers/clusters.py` — `GET /clusters/{cluster_id}`, `GET /clusters/account/{user_id}`, `GET /clusters/stats`
+    - `/clusters/account/{user_id}` returns 404 if account not clustered
+    - _Requirements: REQ-A3.6, REQ-A3.7, REQ-A3.10_
+  - [x] 4.4 Create `app/migrations/004_create_identity_clusters.sql`
+    - `identity_clusters` table as per design data model
+    - _Requirements: REQ-A3_
+  - [x] 4.5 Write property test for cluster merge transitivity
+    - **Property 5: Cluster merge transitivity** — generate random overlapping cluster sets, assert union-find produces correct merged clusters containing all members
+    - `# Feature: aml-advanced-features, Property 5: cluster merge transitivity`
+    - **Validates: Requirements REQ-A3.3**
+  - [x] 4.6 Write property test for cluster risk score is maximum member score
+    - **Property 6: Cluster risk score is max member** — generate random member risk scores, assert `cluster_risk_score = max(scores)`; adding higher-scored member updates cluster score
+    - `# Feature: aml-advanced-features, Property 6: cluster risk score is max member`
+    - **Validates: Requirements REQ-A3.4**
+
+- [x] 5. Behavioral Profiling Over Time (REQ-A4)
+  - [x] 5.1 Create `app/services/sequence_scorer.py` implementing `SequenceScorer` class
+    - Encode per-user transaction history as ordered event vectors; configurable lookback window via `SEQ_LOOKBACK_DAYS` (default 90)
+    - LSTM or Transformer architecture selectable via `SEQ_MODEL_ARCH`; configurable sequence length and embedding dims
+    - `score(user_id)` returns `SequenceScore` with `sequence_anomaly_score` in [0, 1], top-3 anomalous events, model version
+    - If user has fewer than `SEQ_MIN_TRANSACTIONS` (default 5) transactions: return `insufficient_history: true`, skip scoring
+    - Store per-user behavioral baselines in `FeatureStore` under `sequence` group
+    - Retrain on configurable schedule via `SEQ_RETRAIN_SCHEDULE` (default weekly)
+    - _Requirements: REQ-A4_
+  - [x] 5.2 Create `app/models/sequence.py` with `SequenceScore`, `AnomalousEvent`, `BehavioralProfile` Pydantic schemas
+    - _Requirements: REQ-A4.3, REQ-A4.4, REQ-A4.6_
+  - [x] 5.3 Create `app/routers/sequence.py` — `POST /sequence/score`, `GET /sequence/profile/{user_id}`
+    - _Requirements: REQ-A4.6, REQ-A4.10_
+  - [x] 5.4 Write property test for sequence score range and insufficient history flag
+    - **Property 7: Sequence score range and insufficient history** — generate users with varying transaction counts, assert score in [0,1] for sufficient history and `insufficient_history: true` for insufficient
+    - `# Feature: aml-advanced-features, Property 7: sequence score range and insufficient history flag`
+    - **Validates: Requirements REQ-A4.3, REQ-A4.9**
+
+- [x] 6. Adaptive Threshold System (REQ-A5)
+  - [x] 6.1 Create `app/services/threshold_controller.py` implementing `ThresholdController` class
+    - Maintain separate HIGH and MEDIUM thresholds; configurable floor/ceiling via env vars
+    - `tick()` called periodically: reads `CaseManager` queue depth; raises HIGH threshold if depth > `THRESHOLD_MAX_QUEUE` (default 500); lowers if depth < `THRESHOLD_MIN_QUEUE` (default 50)
+    - `set_override(value, reason, expiry)` sets manual override; `tick()` checks expiry and reverts, logging reversion event
+    - `simulate(proposed)` returns estimated alert volume, recall, precision based on last 7 days of predictions
+    - All threshold changes logged to `threshold_history` table with old value, new value, reason, operator
+    - _Requirements: REQ-A5_
+  - [x] 6.2 Create `app/models/threshold.py` with `ThresholdState`, `ThresholdSimulation`, `ThresholdChangeEvent` Pydantic schemas
+    - _Requirements: REQ-A5.4, REQ-A5.7_
+  - [x] 6.3 Create `app/routers/thresholds.py` — `GET /thresholds/current`, `POST /thresholds/override`, `GET /thresholds/simulation`, `GET /thresholds/history`
+    - `POST /thresholds/override` requires `reason` string and `expiry` timestamp; requires auth
+    - _Requirements: REQ-A5.4, REQ-A5.5, REQ-A5.7, REQ-A5.10_
+  - [x] 6.4 Create `app/migrations/005_create_threshold_history.sql`
+    - `threshold_history` table as per design data model
+    - _Requirements: REQ-A5.8_
+  - [x] 6.5 Write property test for adaptive threshold bounds
+    - **Property 8: Adaptive threshold bounds** — generate random queue depths, assert threshold moves in correct direction and stays within [floor, ceiling]
+    - `# Feature: aml-advanced-features, Property 8: adaptive threshold bounds`
+    - **Validates: Requirements REQ-A5.2, REQ-A5.3**
+  - [x] 6.6 Write property test for threshold override expiry reversion
+    - **Property 9: Threshold override expiry reversion** — set override with past expiry, call `tick()`, assert reversion to adaptive value and reversion event logged
+    - `# Feature: aml-advanced-features, Property 9: threshold override expiry reversion`
+    - **Validates: Requirements REQ-A5.6**
+
+- [x] 7. Alerting and Case Management System (REQ-A6 + REQ-A8)
+  - [x] 7.1 Create `app/services/case_manager.py` implementing `CaseManager` class
+    - `create_case(prediction)` creates Case for HIGH predictions; if open Case exists for user, appends prediction instead
+    - Valid status transitions: `open → in_review`, `open → escalated`, `in_review → resolved`, `escalated → resolved`; reject invalid transitions with 422
+    - `resolve(case_id, resolution)` requires `resolution_type` (`confirmed_fraud`, `false_positive`, `insufficient_evidence`) and `resolution_note`
+    - On `confirmed_fraud`: tag user in confirmed fraud registry, notify `AlertRouter`
+    - `export_csv(filters)` returns CSV with all fields required for regulatory reporting
+    - _Requirements: REQ-A6_
+  - [x] 7.2 Create `app/models/case.py` with `Case`, `CaseStatus`, `CaseResolution`, `CaseFilters`, `CaseStats`, `CaseAuditEntry` Pydantic schemas
+    - _Requirements: REQ-A6.1, REQ-A6.3, REQ-A6.8_
+  - [x] 7.3 Create `app/routers/cases.py` — `GET /cases`, `GET /cases/{case_id}`, `POST /cases/{case_id}/assign`, `POST /cases/{case_id}/resolve`, `GET /cases/stats`
+    - `GET /cases` supports pagination + filters: status, risk_level, date range, assigned analyst
+    - `GET /cases/{case_id}` returns full detail including audit trail, cluster info, graph subgraph summary, historical predictions
+    - _Requirements: REQ-A6.5, REQ-A6.6, REQ-A6.7, REQ-A6.8, REQ-A6.10_
+  - [x] 7.4 Create `app/migrations/006_create_cases.sql`
+    - `cases` and `case_audit_trail` tables as per design data model
+    - _Requirements: REQ-A6_
+  - [x] 7.5 Create `app/services/alert_router.py` implementing `AlertRouter` class
+    - Support LINE Notify (or LINE Bot), SMTP email, and HTTP webhook channels
+    - Per-channel rate limiting: configurable max alerts/hour (default 60); queue excess alerts
+    - Alert suppression: if same `user_id` triggered alert within cooldown window (default 1h), suppress duplicate
+    - Retry logic: 3 attempts per dispatch; mark `failed` and surface in dashboard after exhaustion
+    - Every notification includes: `case_id`, `user_id`, `risk_score`, `risk_level`, top-3 risk signals, deep link to Case UI
+    - _Requirements: REQ-A8_
+  - [x] 7.6 Create `app/models/alert.py` with `RiskAlert`, `AlertRecord`, `ChannelTestResult` Pydantic schemas
+    - _Requirements: REQ-A8.6, REQ-A8.7_
+  - [x] 7.7 Create `app/routers/alerts.py` — `GET /alerts/history`, `POST /alerts/test`
+    - _Requirements: REQ-A8.7, REQ-A8.10_
+  - [x] 7.8 Write property test for case deduplication
+    - **Property 10: Case deduplication** — generate multiple HIGH predictions for same user, assert only one open case exists
+    - `# Feature: aml-advanced-features, Property 10: case deduplication`
+    - **Validates: Requirements REQ-A6.11**
+  - [x] 7.9 Write property test for case status transition validity
+    - **Property 11: Case status transition validity** — generate random transition attempts, assert only valid transitions succeed and invalid ones return 422
+    - `# Feature: aml-advanced-features, Property 11: case status transition validity`
+    - **Validates: Requirements REQ-A6.3**
+  - [x] 7.10 Write property test for alert rate limiting
+    - **Property 12: Alert rate limiting** — generate alert sequences with timestamps, assert per-channel count ≤ limit in any 60-min window; excess alerts queued not dropped
+    - `# Feature: aml-advanced-features, Property 12: alert rate limiting`
+    - **Validates: Requirements REQ-A8.4, REQ-A8.5**
+  - [x] 7.11 Write property test for alert suppression within cooldown
+    - **Property 13: Alert suppression within cooldown** — generate alert sequences for same user_id within cooldown window, assert suppression
+    - `# Feature: aml-advanced-features, Property 13: alert suppression within cooldown`
+    - **Validates: Requirements REQ-A8.9**
+
+- [x] 8. AI Copilot for Analysts (REQ-A7)
+  - [x] 8.1 Create `app/services/ai_copilot.py` implementing `AICopilot` class
+    - LLM backend selectable via `COPILOT_LLM_PROVIDER` env var (openai, anthropic, ollama)
+    - `explain(case_id)` and `suggest(case_id)` return async generators for SSE streaming
+    - `compare(case_id)` retrieves top-3 most similar historical resolved cases by embedding similarity
+    - PII guard: strip/replace any full names, national IDs, phone numbers before sending to LLM and in responses; use `user_id` only
+    - Fallback when LLM unavailable: return structured response with raw SHAP top features + template explanation
+    - All requests/responses logged to audit log (excluding PII) with `case_id`, model version, latency
+    - _Requirements: REQ-A7_
+  - [x] 8.2 Create `app/models/copilot.py` with `CopilotExplanation`, `CopilotSuggestion`, `SimilarCasesResult` Pydantic schemas
+    - _Requirements: REQ-A7.1, REQ-A7.2, REQ-A7.6_
+  - [x] 8.3 Create `app/routers/copilot.py` — `POST /copilot/explain/{case_id}`, `POST /copilot/suggest/{case_id}`, `POST /copilot/compare/{case_id}`
+    - `explain` and `suggest` use `StreamingResponse` with `text/event-stream` content type
+    - _Requirements: REQ-A7.1, REQ-A7.2, REQ-A7.4, REQ-A7.6_
+  - [x] 8.4 Write property test for copilot PII exclusion
+    - **Property 17: Copilot PII exclusion** — generate case details with PII-like strings (names, IDs, phone numbers), assert LLM response contains none; all user references use `user_id` only
+    - `# Feature: aml-advanced-features, Property 17: copilot PII exclusion`
+    - **Validates: Requirements REQ-A7.5**
+
+- [x] 9. ML and System Monitoring (REQ-A10)
+  - [x] 9.1 Create `app/services/monitoring_system.py` implementing `MonitoringSystem` class
+    - `tick()` runs every 15 minutes: updates per-model metrics (prediction count, avg risk_score, distribution, latency percentiles)
+    - Computes rolling precision/recall/F1 from confirmed fraud labels in resolved Cases (7-day and 30-day windows)
+    - Extends existing PSI drift detection to cover all models in ensemble (Graph, Sequence, XGBoost)
+    - Emits `model_degradation` alert via `AlertRouter` when rolling F1 drops > 0.05 below baseline F1
+    - Tracks SLA breaches: Streaming p95 > 5s, FeatureStore p99 > 20ms, CaseManager p95 > 500ms; emits alert within 60s of breach
+    - Retains metrics for 90 days
+    - _Requirements: REQ-A10_
+  - [x] 9.2 Create `app/models/monitoring.py` with `UnifiedHealthSummary`, `ModelMetrics`, `CalibrationCurve`, `SLAStatus` Pydantic schemas
+    - _Requirements: REQ-A10.1, REQ-A10.5, REQ-A10.9_
+  - [x] 9.3 Create `app/routers/monitoring.py` — `GET /monitoring/dashboard`, `GET /monitoring/model/{model_name}/calibration`
+    - `/monitoring/dashboard` returns unified health for all components
+    - `/monitoring/model/{model_name}/calibration` returns precision-recall at 20 threshold points
+    - _Requirements: REQ-A10.5, REQ-A10.9_
+  - [x] 9.4 Add Prometheus metrics endpoint `GET /metrics` to `app/main.py`
+    - Expose all per-component metrics in Prometheus text format via `prometheus_client`
+    - _Requirements: REQ-A10.10_
+  - [x] 9.5 Write property test for monitoring F1 degradation detection
+    - **Property 16: Monitoring F1 degradation detection** — generate (baseline_f1, rolling_f1) pairs, assert alert emitted iff drop > 0.05; no alert when within 0.05
+    - `# Feature: aml-advanced-features, Property 16: monitoring F1 degradation detection`
+    - **Validates: Requirements REQ-A10.4**
+
+- [x] 10. Wire all new services into FastAPI app and update config
+  - [x] 10.1 Update `app/config.py` with all new env vars
+    - `STREAM_BROKER_TYPE`, `KAFKA_BOOTSTRAP_SERVERS`, `KINESIS_STREAM_NAME`
+    - `REDIS_URL`, `GRAPH_HIDDEN_DIM`, `GRAPH_HIGH_FRACTION_THRESHOLD`
+    - `SEQ_LOOKBACK_DAYS`, `SEQ_MIN_TRANSACTIONS`, `SEQ_MODEL_ARCH`, `SEQ_RETRAIN_SCHEDULE`
+    - `ENSEMBLE_WEIGHT_XGB`, `ENSEMBLE_WEIGHT_GRAPH`, `ENSEMBLE_WEIGHT_SEQ`
+    - `THRESHOLD_MAX_QUEUE`, `THRESHOLD_MIN_QUEUE`, `THRESHOLD_HIGH_FLOOR`, `THRESHOLD_HIGH_CEILING`
+    - `COPILOT_LLM_PROVIDER`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OLLAMA_BASE_URL`
+    - `LINE_NOTIFY_TOKEN`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_WEBHOOK_URL`
+    - `ALERT_RATE_LIMIT_PER_HOUR`, `ALERT_COOLDOWN_SECONDS`
+    - _Requirements: REQ-A1.9, REQ-A7.10, REQ-A8.1_
+  - [x] 10.2 Update `app/main.py` lifespan to initialize all new services
+    - Add `FeatureStore`, `StreamConsumer`, `GraphEngine`, `IdentityClusterer`, `SequenceScorer`, `ThresholdController`, `CaseManager`, `AICopilot`, `AlertRouter`, `MonitoringSystem` to `AppState`
+    - Register all new routers
+    - _Requirements: all_
+  - [x] 10.3 Write unit tests for all new API endpoints in `tests/unit/test_advanced_api_endpoints.py`
+    - Use FastAPI `TestClient`; mock all new services
+    - Cover: `/stream/health`, `/graph/score`, `/graph/subgraph/{user_id}`, `/clusters/*`, `/sequence/*`, `/thresholds/*`, `/cases/*`, `/copilot/*`, `/alerts/*`, `/features/*`, `/monitoring/*`
+    - _Requirements: REQ-A1 through REQ-A11_
+
+- [x] 11. Analyst Investigation Dashboard Upgrade (REQ-A11)
+  - [x] 11.1 Add Case Management tab to React dashboard
+    - Filterable, sortable table: `case_id`, `user_id`, `risk_score`, `risk_level`, `status`, `assigned analyst`, `created_at`
+    - Fetches `GET /cases` with pagination; filter controls for status, risk_level, date range, analyst
+    - _Requirements: REQ-A11.1_
+  - [x] 11.2 Implement Case detail view
+    - Risk score timeline chart, SHAP waterfall chart, graph neighborhood visualization (force-directed, up to 2 hops), Identity_Cluster membership panel, AI_Copilot explanation panel
+    - Node color encoding by Risk_Level; edge weight encoding by transfer amount
+    - Fetches `GET /cases/{case_id}`, `GET /graph/subgraph/{user_id}`, `GET /sequence/profile/{user_id}`
+    - _Requirements: REQ-A11.2, REQ-A11.3, REQ-A11.4_
+  - [x] 11.3 Embed AI Copilot panel in Case detail view
+    - "Explain" and "Suggest" buttons trigger `POST /copilot/explain/{case_id}` and `POST /copilot/suggest/{case_id}`
+    - Display SSE-streamed text progressively; show fallback content if LLM unavailable
+    - _Requirements: REQ-A11.5_
+  - [x] 11.4 Add inline case action controls to Case detail view
+    - Status update dropdown, note input, analyst assignment; changes call `POST /cases/{case_id}/assign` and `POST /cases/{case_id}/resolve`
+    - Reflect changes in real time without full page reload
+    - _Requirements: REQ-A11.6_
+  - [x] 11.5 Add real-time alert feed panel
+    - Shows last 20 alerts from `GET /alerts/history`; auto-refreshes every 30 seconds
+    - _Requirements: REQ-A11.7_
+  - [x] 11.6 Add System Health tab
+    - Displays unified monitoring dashboard from `GET /monitoring/dashboard`
+    - Visual SLA compliance indicators (green/yellow/red) per component
+    - _Requirements: REQ-A11.8_
+  - [x] 11.7 Implement error handling and dark mode
+    - All API call failures show non-blocking error toast; fall back to last successfully loaded data (no blank state)
+    - Dark mode support; responsive layout for 1280px–2560px screen widths
+    - _Requirements: REQ-A11.9, REQ-A11.10_
+
+## Notes
+
+- Tasks marked with `*` are property-based tests and can be skipped for a faster MVP
+- All property tests use Hypothesis with `@settings(max_examples=100)`; tagged `# Feature: aml-advanced-features, Property N: ...`
+- Task 1 (Feature Store) must be completed before Tasks 2–5 (all models depend on it)
+- Task 7 (Case Manager) must be completed before Task 8 (AI Copilot references cases) and Task 9 (Monitoring reads case labels)
+- Task 10 wires everything together and should be done after Tasks 1–9
+- Task 11 (Dashboard) can proceed in parallel with Tasks 2–9 using mock API responses
+- Existing `feature_engineering.py` and `model_xgboost.py` at root are not modified
+- New Python dependencies to add to `requirements.txt`: `kafka-python`, `boto3`, `redis`, `torch`, `torch-geometric`, `networkx`, `openai`, `anthropic`, `prometheus-client`, `hypothesis`

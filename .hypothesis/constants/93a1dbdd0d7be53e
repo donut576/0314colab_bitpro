@@ -1,0 +1,4 @@
+# file: C:\Users\Sharon\Bito-Guard\app\models\case.py
+# hypothesis_version: 6.151.9
+
+['confirmed_fraud', 'escalated', 'false_positive', 'in_review', 'open', 'resolved']

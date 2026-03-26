@@ -1,8 +1,8 @@
 # AML / 詐騙偵測專案（BitoPro）
 
-從 BitoPro API 抓取交易資料，進行特徵工程後，使用 XGBoost 訓練人頭戶偵測模型；並提供 FastAPI 服務層供線上即時推論。
+從 BitoPro API 抓取交易資料，進行特徵工程後，使用 XGBoost / LightGBM / Random Forest 訓練人頭戶偵測模型；並提供 FastAPI 服務層供線上即時推論與視覺化 Dashboard。
 
-主流程：**feature_engineering.py → model_xgboost.py**
+主流程：**feature_engineering.py → run_all_models.py → aml-frontend**
 
 ---
 
@@ -11,20 +11,19 @@
 ```
 /
 ├── feature_engineering.py   # Step 1：API 抓取 → 清洗 → 特徵工程 → 輸出 CSV
-├── model_xgboost.py         # Step 2：讀取特徵 CSV → ablation → 調參 → 訓練 → 推論
-├── model_Rf.py              # 實驗用：Random Forest 對照模型
-├── model_LightGBM.py        # 實驗用：LightGBM 對照模型
+├── run_all_models.py        # Step 2：一次跑 XGBoost / LightGBM / RF 三模型，輸出至 output_results/
+├── model_xgboost.py         # 單獨跑 XGBoost（輸出至 output_xgb_v2/）
+├── model_LightGBM.py        # 單獨跑 LightGBM
+├── model_Rf.py              # 單獨跑 Random Forest
 ├── requirements.txt
 │
 ├── train_feature.csv        # 訓練集特徵（feature_engineering.py 輸出）
 ├── test_feature.csv         # 測試集特徵（feature_engineering.py 輸出）
 ├── feature_full.csv         # 全量用戶特徵（含 IsolationForest 分數）
 │
-├── output_xgb_v2/           # model_xgboost.py 輸出目錄
+├── output_xgb_v2/           # model_xgboost.py 單獨輸出目錄
 │   ├── compare_modes.csv
-│   ├── full/
-│   ├── no_leak/
-│   └── safe/
+│   ├── full/ no_leak/ safe/
 │       ├── feature_importance.csv
 │       ├── best_params.csv
 │       ├── metrics.csv
@@ -32,12 +31,73 @@
 │       ├── valid_detail.csv
 │       └── submission.csv
 │
-└── app/                     # FastAPI 服務層（線上推論）
+├── output_results/          # run_all_models.py 輸出目錄（三模型 × 三 mode）
+│   ├── summary.csv          # 跨模型比較表
+│   ├── xgb/ lgb/ rf/
+│       ├── full/ no_leak/ safe/
+│           ├── metrics.csv
+│           ├── feature_importance.csv
+│           ├── threshold_analysis.csv
+│           ├── test_scores.csv
+│           └── shap.json
+│
+├── aml-frontend/            # 視覺化 Dashboard（React + Vite + Recharts）
+│   ├── server.py            # 輕量級 FastAPI server，讀取 output_results/ 並提供 API
+│   ├── src/
+│   │   ├── components/      # AMLDashboard、ShapPanel、UploadPanel、charts 等
+│   │   ├── api/endpoints.js
+│   │   └── main.jsx
+│   └── package.json
+│
+├── frontend/                # 舊版 Dashboard（較簡單，可選用）
+│   ├── src/
+│   │   ├── App.jsx
+│   │   └── components/      # AlertFeed、CasesTab、SystemHealthTab 等
+│   └── package.json
+│
+└── app/                     # FastAPI 進階服務層（線上推論 + 監控 + 案件管理）
     ├── main.py
     ├── config.py
-    ├── models/              # Pydantic request/response schemas
-    └── routers/             # predict / explain / drift / audit / model
-        services/            # 業務邏輯：ModelLoader、XGBPredictor、SHAPExplainer 等
+    ├── models/              # Pydantic schemas（alert、case、drift、explain 等）
+    ├── routers/             # 16 個 API 路由
+    │   ├── predict.py       # 即時推論
+    │   ├── explain.py       # SHAP 解釋
+    │   ├── drift.py         # 特徵漂移偵測
+    │   ├── monitoring.py    # 模型監控
+    │   ├── alerts.py        # 警報管理
+    │   ├── cases.py         # 案件管理
+    │   ├── audit.py         # 稽核日誌
+    │   ├── thresholds.py    # 動態閾值調整
+    │   ├── clusters.py      # 身份聚類
+    │   ├── graph.py         # 資金流圖譜
+    │   ├── feature_store.py # 特徵倉儲
+    │   ├── sequence.py      # 序列評分
+    │   ├── copilot.py       # AI 助手
+    │   ├── stream.py        # 串流消費
+    │   └── model.py         # 模型管理
+    ├── services/            # 業務邏輯層
+    │   ├── predictor.py
+    │   ├── shap_explainer.py
+    │   ├── drift_detector.py
+    │   ├── monitoring_system.py
+    │   ├── alert_router.py
+    │   ├── case_manager.py
+    │   ├── audit_logger.py
+    │   ├── threshold_controller.py
+    │   ├── identity_clusterer.py
+    │   ├── graph_engine.py
+    │   ├── feature_store.py
+    │   ├── sequence_scorer.py
+    │   ├── ai_copilot.py
+    │   ├── stream_consumer.py
+    │   ├── ensemble_scorer.py
+    │   └── model_loader.py
+    └── migrations/          # 資料庫 schema（PostgreSQL）
+        ├── 002_create_feature_store.sql
+        ├── 003_create_graph_snapshots.sql
+        ├── 004_create_identity_clusters.sql
+        ├── 005_create_threshold_history.sql
+        └── 006_create_cases.sql
 ```
 
 ---
@@ -57,7 +117,15 @@ python feature_engineering.py
 - `test_feature.csv`：測試集
 - `feature_full.csv`：全量用戶特徵表（含 IsolationForest 異常分數）
 
-**Step 2：訓練與推論**
+**Step 2a：一次跑三模型（建議）**
+
+```bash
+python run_all_models.py
+```
+
+輸出至 `output_results/{xgb,lgb,rf}/{full,no_leak,safe}/`，包含 metrics、feature_importance、threshold_analysis、test_scores、shap.json，以及跨模型比較的 `summary.csv`。
+
+**Step 2b：單獨跑 XGBoost**
 
 ```bash
 python model_xgboost.py
@@ -65,7 +133,26 @@ python model_xgboost.py
 
 輸出至 `output_xgb_v2/`，包含三種 ablation mode 的評估結果與預測檔。
 
-### FastAPI 服務
+### Dashboard（aml-frontend）
+
+先啟動 API server（讀取 `output_results/`）：
+
+```bash
+cd aml-frontend
+python -m uvicorn server:app --port 8000 --reload
+```
+
+再啟動前端：
+
+```bash
+cd aml-frontend
+npm install
+npm run dev
+```
+
+開啟 `http://localhost:5173` 查看 Dashboard，包含模型比較、特徵重要性、SHAP 解釋、閾值分析、批次推論上傳等功能。
+
+### FastAPI 進階服務層
 
 ```bash
 uvicorn app.main:app --reload
@@ -114,7 +201,15 @@ uvicorn app.main:app --reload
 
 ---
 
-## 模型說明（model_xgboost.py）
+## 模型說明
+
+### 支援模型
+
+| 模型 | 腳本 | 說明 |
+|---|---|---|
+| XGBoost | `model_xgboost.py` / `run_all_models.py` | 主要模型，使用 `hist` tree method |
+| LightGBM | `model_LightGBM.py` / `run_all_models.py` | 對照模型 |
+| Random Forest | `model_Rf.py` / `run_all_models.py` | 對照模型 |
 
 ### Ablation Study（三種特徵版本）
 
@@ -139,7 +234,7 @@ uvicorn app.main:app --reload
 ## 環境需求
 
 ```bash
-pip install pandas numpy requests scikit-learn xgboost matplotlib seaborn
+pip install pandas numpy requests scikit-learn xgboost lightgbm matplotlib seaborn
 pip install optuna shap      # 選用
 pip install fastapi uvicorn pydantic-settings  # FastAPI 服務層
 ```
@@ -148,4 +243,11 @@ pip install fastapi uvicorn pydantic-settings  # FastAPI 服務層
 
 ```bash
 pip install -r requirements.txt
+```
+
+前端依賴：
+
+```bash
+cd aml-frontend
+npm install
 ```
