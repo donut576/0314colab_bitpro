@@ -560,7 +560,7 @@ def run_experiment(train_df, test_df, mode="full", out_dir="output_lgb", use_opt
 def main(
     train_path="train_feature.csv",
     test_path="test_feature.csv",
-    out_dir="output_lgb_v1",
+    out_dir="output_lgb",
     use_optuna=True,
 ):
     train_df = pd.read_csv(train_path)
