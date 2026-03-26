@@ -150,7 +150,7 @@ npm install
 npm run dev
 ```
 
-開啟 `http://localhost:5173` 查看 Dashboard，包含模型比較、特徵重要性、SHAP 解釋、閾值分析、批次推論上傳等功能。
+開啟 `http://localhost:3000` 查看 Dashboard，包含模型比較、特徵重要性、SHAP 解釋、閾值分析、批次推論上傳等功能。
 
 ### FastAPI 進階服務層
 

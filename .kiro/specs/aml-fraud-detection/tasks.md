@@ -12,16 +12,16 @@ Extend the existing two-script pipeline (`feature_engineering.py` → `model_xgb
   - Wire FastAPI lifespan (startup/shutdown) in `app/main.py` with placeholder service initialization
   - _Requirements: REQ-3_
 
-- [~] 2. Implement Pydantic schemas
-  - [~] 2.1 Create `app/models/prediction.py` with `PredictRequest`, `PredictionResult`, `SHAPContribution`
+- [ ] 2. Implement Pydantic schemas
+  - [ ] 2.1 Create `app/models/prediction.py` with `PredictRequest`, `PredictionResult`, `SHAPContribution`
     - Include `mode` defaulting to `"safe"`, `include_shap: bool = False`, `users: list[dict]`
     - _Requirements: REQ-3.2, REQ-3.6_
-  - [~] 2.2 Create `app/models/explain.py`, `app/models/drift.py`, `app/models/audit.py`
+  - [ ] 2.2 Create `app/models/explain.py`, `app/models/drift.py`, `app/models/audit.py`
     - `DriftReport`, `FeatureDriftResult`, `AuditQueryFilters`, `PredictionLogRecord` as per design
     - _Requirements: REQ-4, REQ-5, REQ-7_
 
-- [~] 3. Implement ModelLoader service
-  - [~] 3.1 Create `app/services/model_loader.py` implementing `ModelLoader` class
+- [ ] 3. Implement ModelLoader service
+  - [ ] 3.1 Create `app/services/model_loader.py` implementing `ModelLoader` class
     - `load_from_s3(s3_uri)` downloads `model.ubj`, `metadata.json`, `training_stats.json`, `feature_importance.csv` via `boto3`
     - `get_model()`, `get_metadata()`, `get_training_stats()` return cached objects
     - Raise descriptive error (surfaced as 503) if S3 download fails at startup
@@ -30,8 +30,8 @@ Extend the existing two-script pipeline (`feature_engineering.py` → `model_xgb
     - **Property 7: Default mode is safe**
     - **Validates: Requirements REQ-3.2**
 
-- [~] 4. Implement XGBPredictor service
-  - [~] 4.1 Create `app/services/predictor.py` implementing `XGBPredictor` class
+- [ ] 4. Implement XGBPredictor service
+  - [ ] 4.1 Create `app/services/predictor.py` implementing `XGBPredictor` class
     - `predict_batch(features: pd.DataFrame)` aligns columns to training feature list, fills inf→nan→0, applies threshold, returns `list[PredictionResult]`
     - `predict_single(user_id, features)` delegates to `predict_batch`
     - Raise 400 if batch size > 1,000
@@ -40,8 +40,8 @@ Extend the existing two-script pipeline (`feature_engineering.py` → `model_xgb
     - **Property 8: Invalid input returns 422**
     - **Validates: Requirements REQ-3.6**
 
-- [~] 5. Implement SHAPExplainer service
-  - [~] 5.1 Create `app/services/shap_explainer.py` implementing `SHAPExplainer` class
+- [ ] 5. Implement SHAPExplainer service
+  - [ ] 5.1 Create `app/services/shap_explainer.py` implementing `SHAPExplainer` class
     - Initialize `shap.TreeExplainer` from loaded model at startup; catch `ImportError` and set `shap_available = False`
     - `explain_user(user_id, features, top_n=10)` returns `list[SHAPContribution]` sorted by `abs(shap_value)` descending
     - `get_global_summary_png(sample_df)` renders SHAP summary plot to bytes and returns PNG
@@ -51,8 +51,8 @@ Extend the existing two-script pipeline (`feature_engineering.py` → `model_xgb
     - **Property 9: SHAP explanation completeness**
     - **Validates: Requirements REQ-4.1, REQ-4.2**
 
-- [~] 6. Implement DriftDetector service
-  - [~] 6.1 Create `app/services/drift_detector.py` implementing `DriftDetector` class
+- [ ] 6. Implement DriftDetector service
+  - [ ] 6.1 Create `app/services/drift_detector.py` implementing `DriftDetector` class
     - `compute_psi(feature, current_values)` uses pre-computed bins from `training_stats.json`; returns float
     - PSI thresholds: `< 0.1` → `ok`, `0.1–0.2` → `warning`, `≥ 0.2` → `critical`
     - `compute_batch_drift(batch_df)` runs PSI on top-20 SHAP features; returns `DriftReport` with `overall_status` = worst feature status
@@ -64,17 +64,17 @@ Extend the existing two-script pipeline (`feature_engineering.py` → `model_xgb
     - **Property 11: Drift status reflects worst feature**
     - **Validates: Requirements REQ-5.4, REQ-5.5**
 
-- [~] 7. Checkpoint — core services complete
+- [ ] 7. Checkpoint — core services complete
   - Ensure all tests pass, ask the user if questions arise.
 
-- [~] 8. Implement AuditLogger service
-  - [~] 8.1 Create `app/services/audit_logger.py` implementing `AuditLogger` class
+- [ ] 8. Implement AuditLogger service
+  - [ ] 8.1 Create `app/services/audit_logger.py` implementing `AuditLogger` class
     - `log_prediction(record: PredictionLogRecord)` async write via `asyncpg`; falls back to in-memory queue if DB unavailable
     - `query_logs(filters: AuditQueryFilters)` returns paginated records with SQL WHERE clauses for `user_id`, `date_from`, `date_to`
     - `export_csv(filters)` returns CSV bytes with columns: `user_id`, `risk_score`, `predicted_label`, `threshold_used`, `model_version`, `prediction_timestamp`
     - `retained_until` set to `created_at + timedelta(days=90)` on insert
     - _Requirements: REQ-7.1, REQ-7.2, REQ-7.3, REQ-7.4, REQ-7.5_
-  - [~] 8.2 Create `prediction_logs` table migration SQL in `app/migrations/001_create_prediction_logs.sql`
+  - [ ] 8.2 Create `prediction_logs` table migration SQL in `app/migrations/001_create_prediction_logs.sql`
     - Include all columns, indexes, and CHECK constraints from design
     - _Requirements: REQ-7.1_
   - [ ]* 8.3 Write property test for audit log round-trip and append-only invariant
@@ -90,24 +90,24 @@ Extend the existing two-script pipeline (`feature_engineering.py` → `model_xgb
     - **Property 15: 90-day retention invariant**
     - **Validates: Requirements REQ-7.5**
 
-- [~] 9. Implement FastAPI routers and wire services
-  - [~] 9.1 Create `app/routers/predict.py` — `POST /predict`
+- [ ] 9. Implement FastAPI routers and wire services
+  - [ ] 9.1 Create `app/routers/predict.py` — `POST /predict`
     - Validate request via `PredictRequest`; call `XGBPredictor.predict_batch`; call `DriftDetector.compute_batch_drift`; call `AuditLogger.log_prediction` (async, non-blocking); optionally call `SHAPExplainer.explain_user` if `include_shap=True`
     - Include `drift_warning` field in response when `overall_status='critical'`
     - _Requirements: REQ-3.1, REQ-5.5, REQ-7.1_
-  - [~] 9.2 Create `app/routers/explain.py` — `GET /explain/{user_id}` and `GET /explain/summary`
+  - [ ] 9.2 Create `app/routers/explain.py` — `GET /explain/{user_id}` and `GET /explain/summary`
     - `/explain/{user_id}` fetches most recent log from `AuditLogger`, re-runs SHAP, returns `SHAPContribution` list
     - `/explain/summary` returns PNG bytes with `Content-Type: image/png`
     - Return 501 if SHAP unavailable; 404 if user not in logs
     - _Requirements: REQ-4.1, REQ-4.3, REQ-4.5_
-  - [~] 9.3 Create `app/routers/drift.py` — `GET /drift/report`
+  - [ ] 9.3 Create `app/routers/drift.py` — `GET /drift/report`
     - Returns latest `DriftReport` (cached from last `/predict` call)
     - _Requirements: REQ-5.4_
-  - [~] 9.4 Create `app/routers/audit.py` — `GET /audit/log`
+  - [ ] 9.4 Create `app/routers/audit.py` — `GET /audit/log`
     - Accepts query params `user_id`, `date_from`, `date_to`, `page`, `page_size`; delegates to `AuditLogger.query_logs`
     - `?export=csv` triggers `AuditLogger.export_csv` and returns file download
     - _Requirements: REQ-7.3, REQ-7.4_
-  - [~] 9.5 Create `app/routers/model.py` — `GET /health` and `GET /model/info`
+  - [ ] 9.5 Create `app/routers/model.py` — `GET /health` and `GET /model/info`
     - `/health` checks model loaded and DB connected; returns 200 or 503
     - `/model/info` returns metadata + top features from `ModelLoader`
     - _Requirements: REQ-3.1, REQ-3.5_
@@ -118,7 +118,7 @@ Extend the existing two-script pipeline (`feature_engineering.py` → `model_xgb
     - Cover: `POST /predict` 200, 400 (batch > 1000), 422 (bad schema), 503 (model not loaded); `GET /health`; `GET /model/info`; `GET /explain/{user_id}` 200/404/501; `GET /drift/report`; `GET /audit/log` with filters; CSV export
     - _Requirements: REQ-3, REQ-4, REQ-5, REQ-7_
 
-- [~] 11. Checkpoint — API layer complete
+- [ ] 11. Checkpoint — API layer complete
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 12. Write property-based tests for pipeline (Hypothesis)
@@ -174,23 +174,23 @@ Extend the existing two-script pipeline (`feature_engineering.py` → `model_xgb
     - **Property 15: 90-day retention invariant** — generate random `created_at` values, assert `retained_until = created_at + 90d`
     - **Validates: Requirements REQ-7.5**
 
-- [~] 16. Implement React compliance dashboard
-  - [~] 16.1 Scaffold React SPA in `frontend/` with 5-tab layout (Model Metrics, Feature Importance, SHAP, Inference, Fraud Report)
+- [ ] 16. Implement React compliance dashboard
+  - [ ] 16.1 Scaffold React SPA in `frontend/` with 5-tab layout (Model Metrics, Feature Importance, SHAP, Inference, Fraud Report)
     - Set up `apiClient` with mock fallback: on network error or non-2xx, return mock data instead of throwing
     - _Requirements: REQ-6.7_
-  - [~] 16.2 Implement Model Metrics tab
+  - [ ] 16.2 Implement Model Metrics tab
     - Fetch `GET /model/info`; display F1, AUC, Precision, Recall, PR-AUC; mode switcher (`full`/`no_leak`/`safe`) updates all tabs without page reload
     - _Requirements: REQ-6.2_
-  - [~] 16.3 Implement Feature Importance tab
+  - [ ] 16.3 Implement Feature Importance tab
     - Bar chart of top-20 features from `/model/info`; sortable table
     - _Requirements: REQ-6.3_
-  - [~] 16.4 Implement SHAP tab
+  - [ ] 16.4 Implement SHAP tab
     - Display global summary PNG from `GET /explain/summary`; per-user drill-down via `GET /explain/{user_id}`
     - _Requirements: REQ-6.4_
-  - [~] 16.5 Implement Inference tab
+  - [ ] 16.5 Implement Inference tab
     - CSV upload → `POST /predict` → display flagged users with risk scores
     - _Requirements: REQ-6.5_
-  - [~] 16.6 Implement Fraud Report tab
+  - [ ] 16.6 Implement Fraud Report tab
     - Fetch `GET /audit/log`; render only `predicted_label=1` users sorted by `risk_score` descending; CSV export button
     - _Requirements: REQ-6.6, REQ-7.4_
 
@@ -203,7 +203,7 @@ Extend the existing two-script pipeline (`feature_engineering.py` → `model_xgb
     - **Property 17: Dashboard mock fallback** — simulate network errors, assert component renders with mock data
     - **Validates: Requirements REQ-6.6, REQ-6.7**
 
-- [~] 18. Final checkpoint — full system integration
+- [ ] 18. Final checkpoint — full system integration
   - Ensure all Python tests pass (`pytest tests/ -x`), ask the user if questions arise.
   - Ensure all React tests pass (`jest --run`), ask the user if questions arise.
 
