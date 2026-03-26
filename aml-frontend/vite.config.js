@@ -10,6 +10,7 @@ export default defineConfig({
       '/features': 'http://localhost:8000',
       '/thresholds': 'http://localhost:8000',
       '/shap': 'http://localhost:8000',
+      '/fraud_explanation': 'http://localhost:8000',
       '/infer': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
       '/cache': 'http://localhost:8000',

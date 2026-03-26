@@ -9,5 +9,6 @@ export const ENDPOINTS = {
   thresholds: (mode, model = 'xgb') => `${BASE}/thresholds?mode=${mode}&model=${model}`,
   shap:       (mode, model = 'xgb') => `${BASE}/shap?mode=${mode}&model=${model}`,
   summary:    ()                     => `${BASE}/summary`,
+  fraud_explanation: (limit = 10)    => `${BASE}/fraud_explanation?limit=${limit}`,
   infer:      ()                     => `${BASE}/infer`,
 };

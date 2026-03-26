@@ -23,8 +23,8 @@ from fastapi.middleware.cors import CORSMiddleware
 logger = logging.getLogger("aml-server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# output_results/ is one level up (project root)
-RESULTS_ROOT = Path(__file__).parent.parent / "output_results"
+# output_results/ is two levels up (project root)
+RESULTS_ROOT = Path(__file__).parent.parent.parent / "output_results"
 
 app = FastAPI(title="AML Dashboard API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -159,6 +159,42 @@ def get_summary():
     return []
 
 
+@app.get("/fraud_explanation")
+def get_fraud_explanation(limit: int = Query(10)):
+    """Return fraud explanation data for detected fraudulent users."""
+    explanation_path = Path(__file__).parent.parent.parent / "output_explanation" / "fraud_explanation.csv"
+    if explanation_path.exists():
+        df = pd.read_csv(explanation_path)
+        # Sort by fraud probability descending and limit results
+        df = df.sort_values("fraud_prob", ascending=False).head(limit)
+
+        # Convert to list of dicts for easier frontend consumption
+        explanations = []
+        for _, row in df.iterrows():
+            explanation = {
+                "user_id": str(row["user_id"]),
+                "fraud_prob": round(float(row["fraud_prob"]), 4),
+                "fraud_prob_percent": round(float(row["fraud_prob"]) * 100, 1),
+                "kyc_features": str(row.get("一、用戶基本資訊特徵 [KYC]", "")),
+                "twd_features": str(row.get("二、台幣出入金特徵 [TWD]", "")),
+                "crypto_features": str(row.get("三、虛擬貨幣轉帳特徵 [CRYPTO]", "")),
+                "trade_features": str(row.get("四、撮合交易特徵 [TRADE]", "")),
+                "swap_features": str(row.get("五、一鍵買賣特徵 [SWAP]", "")),
+                "network_features": str(row.get("六、網路特徵 [NETWORK]", "")),
+                "wallet_features": str(row.get("七、錢包風險特徵 [WALLET]", "")),
+                "ip_features": str(row.get("八、IP 特徵 [IP]", "")),
+                "temporal_features": str(row.get("九、時間異常特徵 [TEMPORAL]", "")),
+                "amount_features": str(row.get("十、金額異常特徵 [AMOUNT]", "")),
+                "flow_features": str(row.get("十一、資金流動特徵 [FLOW]", "")),
+                "seq_features": str(row.get("十二、行為序列特徵 [SEQ]", "")),
+                "cross_features": str(row.get("十三、交叉特徵 [CROSS]", ""))
+            }
+            explanations.append(explanation)
+
+        return {"explanations": explanations, "total": len(explanations)}
+    return {"explanations": [], "total": 0, "error": "Fraud explanation data not found"}
+
+
 @app.post("/infer")
 async def infer(file: UploadFile = File(...), model: str = Query("xgb"), mode: str = Query("safe")):
     """Batch inference on uploaded CSV using saved test_scores as reference."""
@@ -188,3 +224,8 @@ async def infer(file: UploadFile = File(...), model: str = Query("xgb"), mode: s
         predictions.append({"user_id": uid, "risk_score": score, "risk_level": level})
 
     return {"predictions": predictions, "total": len(predictions), "model": model, "mode": mode}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

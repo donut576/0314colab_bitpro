@@ -13,6 +13,7 @@ import ThresholdChart from './charts/ThresholdChart';
 import ModelCompareChart from './charts/ModelCompareChart';
 import ShapPanel from './shap/ShapPanel';
 import UploadPanel from './inference/UploadPanel';
+import FraudExplanationPanel from './FraudExplanationPanel';
 
 const MODES   = ['safe', 'no_leak', 'full'];
 const MODELS  = [
@@ -135,6 +136,9 @@ export default function AMLDashboard() {
         </div>
         <ShapPanel shapData={shap.data} />
       </GlowCard>
+
+      {/* Fraud Explanation */}
+      <FraudExplanationPanel />
 
       {/* Inference */}
       <div style={{ marginTop: 20 }}>
