@@ -1,19 +1,50 @@
 # AML / 詐騙偵測專案（BitoPro）
 
-從 BitoPro API 抓取交易資料，進行特徵工程後，使用 XGBoost 訓練人頭戶偵測模型。
+從 BitoPro API 抓取交易資料，進行特徵工程後，使用 XGBoost 訓練人頭戶偵測模型；並提供 FastAPI 服務層供線上即時推論。
 
 主流程：**feature_engineering.py → model_xgboost.py**
 
 ---
 
-## 檔案說明
+## 專案結構
 
-- `feature_engineering.py`：從 BitoPro API 分頁抓取資料 → 清洗 → 特徵工程 → 輸出特徵 CSV
-- `model_xgboost.py`：讀取特徵 CSV，進行 ablation study（三種特徵版本）、Optuna 調參、訓練與推論
+```
+/
+├── feature_engineering.py   # Step 1：API 抓取 → 清洗 → 特徵工程 → 輸出 CSV
+├── model_xgboost.py         # Step 2：讀取特徵 CSV → ablation → 調參 → 訓練 → 推論
+├── model_Rf.py              # 實驗用：Random Forest 對照模型
+├── model_LightGBM.py        # 實驗用：LightGBM 對照模型
+├── requirements.txt
+│
+├── train_feature.csv        # 訓練集特徵（feature_engineering.py 輸出）
+├── test_feature.csv         # 測試集特徵（feature_engineering.py 輸出）
+├── feature_full.csv         # 全量用戶特徵（含 IsolationForest 分數）
+│
+├── output_xgb_v2/           # model_xgboost.py 輸出目錄
+│   ├── compare_modes.csv
+│   ├── full/
+│   ├── no_leak/
+│   └── safe/
+│       ├── feature_importance.csv
+│       ├── best_params.csv
+│       ├── metrics.csv
+│       ├── threshold_analysis.csv
+│       ├── valid_detail.csv
+│       └── submission.csv
+│
+└── app/                     # FastAPI 服務層（線上推論）
+    ├── main.py
+    ├── config.py
+    ├── models/              # Pydantic request/response schemas
+    └── routers/             # predict / explain / drift / audit / model
+        services/            # 業務邏輯：ModelLoader、XGBPredictor、SHAPExplainer 等
+```
 
 ---
 
 ## 使用方式
+
+### ML Pipeline
 
 **Step 1：產生特徵資料集**
 
@@ -32,7 +63,25 @@ python feature_engineering.py
 python model_xgboost.py
 ```
 
-預設讀取 `train_feature_v2.csv` / `test_feature_v2.csv`，可在 `main()` 修改路徑與參數。
+輸出至 `output_xgb_v2/`，包含三種 ablation mode 的評估結果與預測檔。
+
+### FastAPI 服務
+
+```bash
+uvicorn app.main:app --reload
+```
+
+啟動後可至 `http://localhost:8000/docs` 查看 Swagger UI。
+
+主要設定透過環境變數或 `.env` 檔控制（參見 `app/config.py`）：
+
+| 變數 | 預設值 | 說明 |
+|---|---|---|
+| `MODEL_S3_URI` | `s3://aml-models/model_registry/latest` | 模型 artifact 路徑 |
+| `DATABASE_URL` | `postgresql://...@localhost:5432/aml` | Audit log 資料庫 |
+| `DEFAULT_MODE` | `safe` | 預設特徵版本 |
+| `PSI_WARNING_THRESHOLD` | `0.1` | Drift 警告門檻 |
+| `PSI_CRITICAL_THRESHOLD` | `0.2` | Drift 嚴重門檻 |
 
 ---
 
@@ -85,34 +134,18 @@ python model_xgboost.py
 
 預設使用 **Optuna**（直接優化驗證集 F1），未安裝時自動退回手動參數。
 
-```bash
-pip install optuna  # 選用
-pip install shap    # 選用，用於 SHAP summary plot
-```
-
----
-
-## 輸出結構
-
-```
-output_xgb_v2/
-├── compare_modes.csv          # 三種 mode 的指標比較表
-├── full/
-│   ├── feature_importance.csv # 特徵重要性與排名
-│   ├── best_params.csv        # 最佳模型參數
-│   ├── metrics.csv            # F1 / AUC / Precision / Recall / PR-AUC
-│   ├── threshold_analysis.csv # 各 threshold 的 precision/recall/f1
-│   ├── valid_detail.csv       # 驗證集預測明細
-│   └── submission.csv         # 測試集預測結果
-├── no_leak/                   # 同上
-└── safe/                      # 同上
-```
-
 ---
 
 ## 環境需求
 
 ```bash
 pip install pandas numpy requests scikit-learn xgboost matplotlib seaborn
-pip install optuna shap  # 選用
+pip install optuna shap      # 選用
+pip install fastapi uvicorn pydantic-settings  # FastAPI 服務層
+```
+
+或直接：
+
+```bash
+pip install -r requirements.txt
 ```
