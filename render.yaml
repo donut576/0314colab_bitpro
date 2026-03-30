@@ -25,7 +25,7 @@ services:
       - key: AWS_DEFAULT_REGION
         value: ap-northeast-1
 
-  - type: static
+  - type: static_site
     name: aml-frontend
     rootDir: aml-frontend
     buildCommand: npm install && npm run build
