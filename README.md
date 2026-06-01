@@ -2,7 +2,7 @@
 
 Bito Guard 是一個 AML / 詐騙風險偵測專案，包含資料特徵工程、模型訓練、FastAPI 後端服務，以及 React Dashboard。
 
-Live Demo: [https://bito-guard.vercel.app](https://bito-guard.vercel.app)
+Live Demo: [https://aml-frontend-mu.vercel.app](https://aml-frontend-mu.vercel.app)
 
 主要流程：
 

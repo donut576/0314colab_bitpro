@@ -29,6 +29,7 @@ node_modules/
 dist/
 aml-frontend/node_modules/
 aml-frontend/dist/
+.vercel/
 
 # IDE
 .vscode/
