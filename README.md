@@ -1,148 +1,86 @@
-# AML / 詐騙偵測專案（BitoPro）
+# Bito Guard AML Fraud Detection
 
-從 BitoPro API 抓取交易資料，進行特徵工程後，使用 XGBoost / LightGBM / Random Forest 訓練人頭戶偵測模型；並提供 FastAPI 服務層供線上即時推論與視覺化 Dashboard。
+Bito Guard 是一個 AML / 詐騙風險偵測專案，包含資料特徵工程、模型訓練、FastAPI 後端服務，以及 React Dashboard。
 
-主流程：**feature_engineering.py → run_all_models.py → aml-frontend**
+主要流程：
 
----
+```text
+feature_engineering.py -> run_all_models.py -> API service -> aml-frontend
+```
 
 ## 專案結構
 
-```
-/
-├── feature_engineering.py   # Step 1：API 抓取 → 清洗 → 特徵工程 → 輸出 CSV
-├── run_all_models.py        # Step 2：一次跑 XGBoost / LightGBM / RF 三模型，輸出至 output_results/
-├── model_xgboost.py         # 單獨跑 XGBoost（輸出至 output_xgb_v2/）
-├── model_LightGBM.py        # 單獨跑 LightGBM
-├── model_Rf.py              # 單獨跑 Random Forest
-├── requirements.txt
-│
-├── train_feature.csv        # 訓練集特徵（feature_engineering.py 輸出）
-├── test_feature.csv         # 測試集特徵（feature_engineering.py 輸出）
-├── feature_full.csv         # 全量用戶特徵（含 IsolationForest 分數）
-│
-├── output_xgb_v2/           # model_xgboost.py 單獨輸出目錄
-│   ├── compare_modes.csv
-│   ├── full/ no_leak/ safe/
-│       ├── feature_importance.csv
-│       ├── best_params.csv
-│       ├── metrics.csv
-│       ├── threshold_analysis.csv
-│       ├── valid_detail.csv
-│       └── submission.csv
-│
-├── output_results/          # run_all_models.py 輸出目錄（三模型 × 三 mode）
-│   ├── summary.csv          # 跨模型比較表
-│   ├── xgb/ lgb/ rf/
-│       ├── full/ no_leak/ safe/
-│           ├── metrics.csv
-│           ├── feature_importance.csv
-│           ├── threshold_analysis.csv
-│           ├── test_scores.csv
-│           └── shap.json
-│
-├── aml-frontend/            # 視覺化 Dashboard（React + Vite + Recharts）
-│   ├── server.py            # 輕量級 FastAPI server，讀取 output_results/ 並提供 API
+```text
+.
+├── app/                    # FastAPI 進階服務層
+│   ├── main.py             # API 入口
+│   ├── routers/            # predict、explain、alerts、cases、monitoring 等路由
+│   ├── services/           # 模型、告警、案件、監控、特徵倉儲等服務邏輯
+│   ├── models/             # Pydantic schemas
+│   └── migrations/         # PostgreSQL schema
+├── aml-frontend/           # React + Vite + Recharts Dashboard
 │   ├── src/
-│   │   ├── components/      # AMLDashboard、ShapPanel、UploadPanel、charts 等
-│   │   ├── api/endpoints.js
-│   │   └── main.jsx
-│   └── package.json
-│
-├── frontend/                # 舊版 Dashboard（較簡單，可選用）
-│   ├── src/
-│   │   ├── App.jsx
-│   │   └── components/      # AlertFeed、CasesTab、SystemHealthTab 等
-│   └── package.json
-│
-└── app/                     # FastAPI 進階服務層（線上推論 + 監控 + 案件管理）
-    ├── main.py
-    ├── config.py
-    ├── models/              # Pydantic schemas（alert、case、drift、explain 等）
-    ├── routers/             # 16 個 API 路由
-    │   ├── predict.py       # 即時推論
-    │   ├── explain.py       # SHAP 解釋
-    │   ├── drift.py         # 特徵漂移偵測
-    │   ├── monitoring.py    # 模型監控
-    │   ├── alerts.py        # 警報管理
-    │   ├── cases.py         # 案件管理
-    │   ├── audit.py         # 稽核日誌
-    │   ├── thresholds.py    # 動態閾值調整
-    │   ├── clusters.py      # 身份聚類
-    │   ├── graph.py         # 資金流圖譜
-    │   ├── feature_store.py # 特徵倉儲
-    │   ├── sequence.py      # 序列評分
-    │   ├── copilot.py       # AI 助手
-    │   ├── stream.py        # 串流消費
-    │   └── model.py         # 模型管理
-    ├── services/            # 業務邏輯層
-    │   ├── predictor.py
-    │   ├── shap_explainer.py
-    │   ├── drift_detector.py
-    │   ├── monitoring_system.py
-    │   ├── alert_router.py
-    │   ├── case_manager.py
-    │   ├── audit_logger.py
-    │   ├── threshold_controller.py
-    │   ├── identity_clusterer.py
-    │   ├── graph_engine.py
-    │   ├── feature_store.py
-    │   ├── sequence_scorer.py
-    │   ├── ai_copilot.py
-    │   ├── stream_consumer.py
-    │   ├── ensemble_scorer.py
-    │   └── model_loader.py
-    └── migrations/          # 資料庫 schema（PostgreSQL）
-        ├── 002_create_feature_store.sql
-        ├── 003_create_graph_snapshots.sql
-        ├── 004_create_identity_clusters.sql
-        ├── 005_create_threshold_history.sql
-        └── 006_create_cases.sql
+│   ├── server.py           # 輕量 Dashboard API，讀取 output_results/
+│   ├── vite.config.js
+│   └── vercel.json         # Vercel 靜態站部署設定
+├── tests/                  # API 與 property-based tests
+├── deploy/                 # AWS / EC2 部署腳本
+├── sagemaker/              # SageMaker 環境設定
+├── feature_engineering.py  # Step 1：產生訓練與測試特徵
+├── run_all_models.py       # Step 2：訓練 XGBoost / LightGBM / Random Forest
+├── model_xgboost.py        # 單模型實驗腳本
+├── model_LightGBM.py       # 單模型實驗腳本
+├── model_Rf.py             # 單模型實驗腳本
+├── model_ensemble.py       # 實驗用 ensemble 腳本
+├── model_stack.py          # 實驗用 stacking 腳本
+├── explain_fraud.py        # 離線解釋結果產生腳本
+├── render.yaml             # Render Blueprint
+├── Dockerfile              # 後端 API container
+└── requirements.txt        # Python dependencies
 ```
 
----
+## 輸出資料
 
-## 使用方式
+以下檔案與資料夾是程式執行後產生，預設不進 Git：
 
-### ML Pipeline
+| 路徑 | 來源 | 用途 |
+|---|---|---|
+| `train_feature.csv` | `feature_engineering.py` | 訓練集特徵 |
+| `test_feature.csv` | `feature_engineering.py` | 測試集特徵 |
+| `feature_full.csv` | `feature_engineering.py` | 全量用戶特徵 |
+| `output_results/` | `run_all_models.py` | Dashboard 主要讀取的模型結果 |
+| `output_xgb_v2/` | `model_xgboost.py` | XGBoost 單模型輸出 |
 
-**Step 1：產生特徵資料集**
+## 本機開發
+
+### 1. 安裝 Python 依賴
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 產生特徵
 
 ```bash
 python feature_engineering.py
 ```
 
-輸出：
-- `train_feature.csv`：訓練集（含 `status` 標籤）
-- `test_feature.csv`：測試集
-- `feature_full.csv`：全量用戶特徵表（含 IsolationForest 異常分數）
-
-**Step 2a：一次跑三模型（建議）**
+### 3. 訓練模型
 
 ```bash
 python run_all_models.py
 ```
 
-輸出至 `output_results/{xgb,lgb,rf}/{full,no_leak,safe}/`，包含 metrics、feature_importance、threshold_analysis、test_scores、shap.json，以及跨模型比較的 `summary.csv`。
+`run_all_models.py` 會輸出到 `output_results/{xgb,lgb,rf}/{full,no_leak,safe}/`，包含 metrics、feature importance、threshold analysis、test scores 與 SHAP JSON。
 
-**Step 2b：單獨跑 XGBoost**
-
-```bash
-python model_xgboost.py
-```
-
-輸出至 `output_xgb_v2/`，包含三種 ablation mode 的評估結果與預測檔。
-
-### Dashboard（aml-frontend）
-
-先啟動 API server（讀取 `output_results/`）：
+### 4. 啟動 Dashboard API
 
 ```bash
 cd aml-frontend
 python -m uvicorn server:app --port 8000 --reload
 ```
 
-再啟動前端：
+### 5. 啟動前端
 
 ```bash
 cd aml-frontend
@@ -150,88 +88,32 @@ npm install
 npm run dev
 ```
 
-開啟 `http://localhost:3000` 查看 Dashboard，包含模型比較、特徵重要性、SHAP 解釋、閾值分析、批次推論上傳等功能。
+開啟 `http://localhost:3000`。
 
-### FastAPI 進階服務層
+## 進階 FastAPI 服務
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-啟動後可至 `http://localhost:8000/docs` 查看 Swagger UI。
+啟動後可開啟：
 
-主要設定透過環境變數或 `.env` 檔控制（參見 `app/config.py`）：
+| 頁面 | URL |
+|---|---|
+| Health check | `http://localhost:8000/health` |
+| Swagger docs | `http://localhost:8000/docs` |
+| Prometheus metrics | `http://localhost:8000/metrics` |
+
+主要環境變數：
 
 | 變數 | 預設值 | 說明 |
 |---|---|---|
 | `MODEL_S3_URI` | `s3://aml-models/model_registry/latest` | 模型 artifact 路徑 |
-| `DATABASE_URL` | `postgresql://...@localhost:5432/aml` | Audit log 資料庫 |
+| `DATABASE_URL` | `postgresql://...@localhost:5432/aml` | Audit / case / feature store 資料庫 |
+| `REDIS_URL` | `redis://localhost:6379/0` | Feature store / stream 相關服務 |
 | `DEFAULT_MODE` | `safe` | 預設特徵版本 |
 | `PSI_WARNING_THRESHOLD` | `0.1` | Drift 警告門檻 |
 | `PSI_CRITICAL_THRESHOLD` | `0.2` | Drift 嚴重門檻 |
-
-### 部署到 Render
-
-本專案已提供 `render.yaml`（Render Blueprint），可一次建立：
-
-- `aml-api`（FastAPI Web Service）
-- `aml-frontend`（Vite Static Site）
-- `aml-redis`（Redis）
-- `aml-postgres`（PostgreSQL）
-
-#### 1) 匯入 Blueprint
-
-1. 將此 repo push 到 GitHub。
-2. 到 Render 選 **New + → Blueprint**。
-3. 選取此 repo，Render 會自動讀取 `render.yaml`。
-
-#### 2) 設定必要環境變數
-
-建立服務後，請在 Render Console 補上：
-
-- `aml-api`：
-    - `MODEL_S3_URI`（你的模型路徑，例如 `s3://aml-models/model_registry/latest`）
-- `aml-frontend`：
-    - `VITE_API_BASE_URL`（填 `aml-api` 的公開 URL，例如 `https://aml-api.onrender.com`）
-
-> `DATABASE_URL` 與 `REDIS_URL` 會由 Blueprint 自動綁定到 Render 的 PostgreSQL/Redis 資源。
-
-#### 3) 驗證部署
-
-- API 健康檢查：`https://<your-api>/health`
-- API 文件：`https://<your-api>/docs`
-- 前端站點：`https://<your-frontend>`
-
----
-
-## 特徵工程說明（feature_engineering.py）
-
-資料來源（透過 BitoPro API 抓取）：
-
-| 資料表 | 說明 |
-|---|---|
-| `user_info` | 用戶基本資料與 KYC 時間 |
-| `twd_transfer` | 台幣出入金紀錄 |
-| `crypto_transfer` | 虛擬貨幣轉帳紀錄 |
-| `usdt_twd_trading` | USDT/TWD 撮合交易紀錄 |
-| `usdt_swap` | 一鍵買賣（Swap）紀錄 |
-| `train_label` / `predict_label` | 訓練/預測標籤 |
-
-特徵類型：
-
-- **KYC 時間差**：各 KYC 階段完成時間差（人頭戶通常極短）
-- **基礎聚合特徵**：各渠道的交易筆數、金額統計、夜間/週末比例、IP 多樣性、時間熵
-- **鏈別風險特徵**：TRC20 / BSC 使用比例、地址重用率、流向不平衡
-- **網路特徵**：內轉網路的 in/out degree、資金流向不對稱
-- **錢包風險**：高風險共用地址比例、地址重用率
-- **IP 特徵**：跨渠道共用 IP 比例、IP 跳躍率
-- **資金流動**：快進快出旗標（台幣入金 → 24 小時內虛幣提領）
-- **行為序列**：可疑操作序列比例（twd_in → 1 小時內 → crypto_out）
-- **金額異常**：整數金額比例、變異係數、偏態
-- **交叉特徵**：深夜 × 金額、KYC 速度 × 交易密度、TRC20 × 夜間等複合訊號
-- **IsolationForest 異常分數**：用 train+test 合併後 fit，確保分布一致
-
----
 
 ## 模型說明
 
@@ -239,47 +121,77 @@ uvicorn app.main:app --reload
 
 | 模型 | 腳本 | 說明 |
 |---|---|---|
-| XGBoost | `model_xgboost.py` / `run_all_models.py` | 主要模型，使用 `hist` tree method |
+| XGBoost | `model_xgboost.py` / `run_all_models.py` | 主要模型 |
 | LightGBM | `model_LightGBM.py` / `run_all_models.py` | 對照模型 |
 | Random Forest | `model_Rf.py` / `run_all_models.py` | 對照模型 |
 
-### Ablation Study（三種特徵版本）
+### Ablation modes
 
 | Mode | 說明 |
 |---|---|
-| `full` | 全部可用數值欄位（分數上限，可能含 leakage） |
-| `no_leak` | 移除高風險可疑欄位（建議主要參考版本） |
-| `safe` | 移除高風險欄位 + 人口學欄位（最接近真實部署情境） |
+| `full` | 全部可用數值欄位，分數上限參考，可能含 leakage |
+| `no_leak` | 移除高風險可疑欄位 |
+| `safe` | 移除高風險欄位與人口學欄位，較接近部署情境 |
 
-若 `full` 與 `safe` 分數差距 > 0.05，建議提交 `safe` 版本，避免線上線下落差。
+若 `full` 與 `safe` 分數差距明顯，建議以上線情境優先參考 `safe`。
 
-### 切分策略
+## 前端部署到 Vercel
 
-優先使用 **time-based split**（前 80% 訓練、後 20% 驗證），模擬「用歷史預測未來」的場景；找不到合適時間欄位時退回 random stratified split。
+若後端 API 已部署在 Render 或其他服務，可以只部署 `aml-frontend`。
 
-### 超參數調優
+1. 將 repo push 到 GitHub。
+2. 到 Vercel 選 **Add New -> Project**。
+3. 選取此 repo。
+4. **Root Directory** 選 `aml-frontend`。
+5. 到 **Settings -> Environment Variables** 新增：
 
-預設使用 **Optuna**（直接優化驗證集 F1），未安裝時自動退回手動參數。
+| 變數 | 說明 |
+|---|---|
+| `VITE_API_BASE_URL` | 後端 API 公開網址，例如 `https://aml-api.onrender.com` |
 
----
+不要在 `VITE_API_BASE_URL` 最後加 `/`。
 
-## 環境需求
+Vercel 會讀取 `aml-frontend/vercel.json`：
+
+| 設定 | 值 |
+|---|---|
+| Install Command | `npm ci` |
+| Build Command | `npm run build` |
+| Output Directory | `dist` |
+
+設定環境變數後，請重新部署一次，讓前端 build 時讀到 API URL。
+
+## 部署到 Render
+
+本專案提供 `render.yaml`，可建立：
+
+| 服務 | 說明 |
+|---|---|
+| `aml-api` | FastAPI Web Service |
+| `aml-frontend` | Vite Static Site |
+| `aml-redis` | Redis |
+| `aml-postgres` | PostgreSQL |
+
+步驟：
+
+1. 將 repo push 到 GitHub。
+2. 到 Render 選 **New + -> Blueprint**。
+3. 選取此 repo，Render 會讀取 `render.yaml`。
+4. 在 Render Console 補上必要環境變數。
+
+必要環境變數：
+
+| 服務 | 變數 | 說明 |
+|---|---|---|
+| `aml-api` | `MODEL_S3_URI` | 模型 artifact 路徑 |
+| `aml-frontend` | `VITE_API_BASE_URL` | `aml-api` 的公開 URL |
+
+`DATABASE_URL` 與 `REDIS_URL` 會由 Blueprint 自動綁定。
+
+## 測試
 
 ```bash
-pip install pandas numpy requests scikit-learn xgboost lightgbm matplotlib seaborn
-pip install optuna shap      # 選用
-pip install fastapi uvicorn pydantic-settings  # FastAPI 服務層
+pytest
 ```
 
-或直接：
-
-```bash
-pip install -r requirements.txt
-```
-
-前端依賴：
-
-```bash
-cd aml-frontend
-npm install
-```
+測試快取如 `.hypothesis/`、`.pytest_cache/` 不需要提交到 Git。

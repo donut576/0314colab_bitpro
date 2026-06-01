@@ -10,6 +10,10 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
 
 # 虛擬環境
 .venv/
@@ -23,10 +27,18 @@ env/
 # Node
 node_modules/
 dist/
+aml-frontend/node_modules/
+aml-frontend/dist/
 
 # IDE
 .vscode/
 .idea/
+
+# 環境變數
+.env
+.env.*
+!.env.example
+!aml-frontend/.env.example
 
 # 系統
 .DS_Store
